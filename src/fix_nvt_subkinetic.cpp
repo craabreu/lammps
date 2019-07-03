@@ -101,7 +101,7 @@ void FixNVTSubkinetic::init()
 
   a = exp(-gamma*step_respa[0]);
   b = sqrt((1.0 - a*a)*kT/Q_eta);
-  bmu = -(1.0 - a)*kT/(Q_eta*gamma);
+  bmu = -kT/Q_eta;
   amu = -(L + 1.0)*bmu;
 }
 
@@ -137,11 +137,13 @@ void FixNVTSubkinetic::initial_integrate(int /*vflag*/)
       for (int j = 0; j < 3; j++) {
         v1 = tanh(confine(atanh(v[i][j]/vmax) + dtfm*f[i][j]));
         x[i][j] += dtvm*v1;
+        v_eta[i][j] += amu*v1*v1 + bmu;
         v2 = v1*exp(-v_eta[i][j]*half_dtv);
         v3 = v2/sqrt(1.0 - v1*v1 + v2*v2);
-        v_eta[i][j] = amu*v3*v3 + bmu + a*v_eta[i][j] + b*random->gaussian();
+        v_eta[i][j] = a*v_eta[i][j] + b*random->gaussian();
         v2 = v3*exp(-v_eta[i][j]*half_dtv);
         v1 = v2/sqrt(1.0 - v3*v3 + v2*v2);
+        v_eta[i][j] += amu*v1*v1 + bmu;
         x[i][j] += dtvm*v1;
         v[i][j] = vmax*v1;
       }
