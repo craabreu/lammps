@@ -75,7 +75,8 @@ class PairHybridCoupling : public Pair {
   double **special_coul;        // list of per style Coulomb exclusion factors
   int *compute_tally;           // list of on/off flags for tally computes
 
-  double coupling_parameter;    // the coupling parameter for the last pair
+  double coupling_parameter;    // the coupling parameter for one pair style
+  int coupling_style;           // the pair style affected by the coupling parameter
 
   void allocate();
   void flags();

@@ -117,16 +117,13 @@ void PairHybridCoupling::compute(int eflag, int vflag)
     if (respa->nhybrid_styles > 0) respaflag = 1;
   }
 
+  double factor;
   double **f = atom->f;
   int ntotal = atom->nlocal;
   if (force->newton_pair) ntotal += atom->nghost;
   double fsave[ntotal][3];
 
-  double factor = 1.0;
   for (m = 0; m < nstyles; m++) {
-
-    if (m == nstyles - 1)
-      factor = coupling_parameter;
 
     set_special(m);
 
@@ -138,7 +135,7 @@ void PairHybridCoupling::compute(int eflag, int vflag)
       if (styles[m]->compute_flag == 0) continue;
 
       // Store current forces and zero them:
-      if (m == nstyles - 1) {
+      if (m == coupling_style) {
         for (i = 0; i < ntotal; i++) {
           fsave[i][0] = f[i][0];
           fsave[i][1] = f[i][1];
@@ -151,7 +148,7 @@ void PairHybridCoupling::compute(int eflag, int vflag)
         styles[m]->compute_outer(eflag,vflag_substyle);
       else styles[m]->compute(eflag,vflag_substyle);
 
-      if (m == nstyles - 1)
+      if (m == coupling_style)
         for (i = 0; i < ntotal; i++) {
           f[i][0] = coupling_parameter*f[i][0] + fsave[i][0];
           f[i][1] = coupling_parameter*f[i][1] + fsave[i][1];
@@ -164,6 +161,8 @@ void PairHybridCoupling::compute(int eflag, int vflag)
     // jump to next sub-style if r-RESPA does not want global accumulated data
 
     if (respaflag && !respa->tally_global) continue;
+
+    factor = (m == coupling_style) ? coupling_parameter : 1.0;
 
     if (eflag_global) {
       eng_vdwl += factor*styles[m]->eng_vdwl;
@@ -261,8 +260,9 @@ void PairHybridCoupling::allocate()
 
 void PairHybridCoupling::settings(int narg, char **arg)
 {
-  if (narg < 2) error->all(FLERR,"Illegal pair_style command");
+  if (narg < 3) error->all(FLERR,"Illegal pair_style command");
   coupling_parameter = force->numeric(FLERR,arg[0]);
+  coupling_style = force->inumeric(FLERR,arg[1]) - 1;
 
   // delete old lists, since cannot just change settings
 
@@ -308,7 +308,7 @@ void PairHybridCoupling::settings(int narg, char **arg)
 
   int iarg,jarg,dummy;
 
-  iarg = 1;
+  iarg = 2;
   nstyles = 0;
   while (iarg < narg) {
     if (strncmp(arg[iarg],"hybrid",6) == 0)
@@ -327,6 +327,9 @@ void PairHybridCoupling::settings(int narg, char **arg)
     iarg = jarg;
     nstyles++;
   }
+
+  if (coupling_style < 0 || coupling_style > nstyles-1)
+    error->all(FLERR,"Illegal coupling style definition");
 
   // multiple[i] = 1 to M if sub-style used multiple times, else 0
 
