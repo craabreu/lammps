@@ -135,14 +135,13 @@ void PairHybridCoupling::compute(int eflag, int vflag)
       if (styles[m]->compute_flag == 0) continue;
 
       // Store current forces and zero them:
-      if (m == coupling_style) {
+      if (m == coupling_style)
         for (i = 0; i < ntotal; i++) {
           fsave[i][0] = f[i][0];
           fsave[i][1] = f[i][1];
           fsave[i][2] = f[i][2];
           f[i][0] = f[i][1] = f[i][2] = 0.0;
         }
-      }
 
       if (outerflag && styles[m]->respa_enable)
         styles[m]->compute_outer(eflag,vflag_substyle);
@@ -209,16 +208,64 @@ void PairHybridCoupling::del_tally_callback(Compute *ptr)
 
 void PairHybridCoupling::compute_inner()
 {
+  int i;
+  double **f = atom->f;
+  int ntotal = atom->nlocal;
+  if (force->newton_pair) ntotal += atom->nghost;
+  double fsave[ntotal][3];
+
   for (int m = 0; m < nstyles; m++)
-    if (styles[m]->respa_enable) styles[m]->compute_inner();
+    if (styles[m]->respa_enable) {
+
+      if (m == coupling_style)
+        for (i = 0; i < ntotal; i++) {
+          fsave[i][0] = f[i][0];
+          fsave[i][1] = f[i][1];
+          fsave[i][2] = f[i][2];
+          f[i][0] = f[i][1] = f[i][2] = 0.0;
+        }
+
+      styles[m]->compute_inner();
+
+      if (m == coupling_style)
+        for (i = 0; i < ntotal; i++) {
+          f[i][0] = coupling_parameter*f[i][0] + fsave[i][0];
+          f[i][1] = coupling_parameter*f[i][1] + fsave[i][1];
+          f[i][2] = coupling_parameter*f[i][2] + fsave[i][2];
+        }
+    }
 }
 
 /* ---------------------------------------------------------------------- */
 
 void PairHybridCoupling::compute_middle()
 {
+  int i;
+  double **f = atom->f;
+  int ntotal = atom->nlocal;
+  if (force->newton_pair) ntotal += atom->nghost;
+  double fsave[ntotal][3];
+
   for (int m = 0; m < nstyles; m++)
-    if (styles[m]->respa_enable) styles[m]->compute_middle();
+    if (styles[m]->respa_enable) {
+
+      if (m == coupling_style)
+        for (i = 0; i < ntotal; i++) {
+          fsave[i][0] = f[i][0];
+          fsave[i][1] = f[i][1];
+          fsave[i][2] = f[i][2];
+          f[i][0] = f[i][1] = f[i][2] = 0.0;
+        }
+
+      styles[m]->compute_middle();
+
+      if (m == coupling_style)
+        for (i = 0; i < ntotal; i++) {
+          f[i][0] = coupling_parameter*f[i][0] + fsave[i][0];
+          f[i][1] = coupling_parameter*f[i][1] + fsave[i][1];
+          f[i][2] = coupling_parameter*f[i][2] + fsave[i][2];
+        }
+    }
 }
 
 /* ---------------------------------------------------------------------- */
