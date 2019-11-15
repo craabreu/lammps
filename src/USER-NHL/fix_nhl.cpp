@@ -73,7 +73,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   drag = 0.0;
   allremap = 1;
   id_dilate = NULL;
-  mtchain = mpchain = 3;
   nc_tchain = nc_pchain = 1;
   mtk_flag = 1;
   deviatoric_flag = 0;
@@ -106,10 +105,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   fixedpoint[0] = 0.5*(domain->boxlo[0]+domain->boxhi[0]);
   fixedpoint[1] = 0.5*(domain->boxlo[1]+domain->boxhi[1]);
   fixedpoint[2] = 0.5*(domain->boxlo[2]+domain->boxhi[2]);
-
-  // used by FixNVTSllod to preserve non-default value
-
-  mtchain_default_flag = 1;
 
   tstat_flag = 0;
   double t_period = 0.0;
@@ -275,18 +270,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"tchain") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      mtchain = force->inumeric(FLERR,arg[iarg+1]);
-      // used by FixNVTSllod to preserve non-default value
-      mtchain_default_flag = 0;
-      if (mtchain < 1) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"pchain") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      mpchain = force->inumeric(FLERR,arg[iarg+1]);
-      if (mpchain < 0) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"mtk") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
       if (strcmp(arg[iarg+1],"yes") == 0) mtk_flag = 1;
@@ -518,18 +501,18 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   if (tstat_flag) {
     int ich;
-    eta = new double[mtchain];
+    eta = new double[1];
 
     // add one extra dummy thermostat, set to zero
 
-    eta_dot = new double[mtchain+1];
-    eta_dot[mtchain] = 0.0;
-    eta_dotdot = new double[mtchain];
-    for (ich = 0; ich < mtchain; ich++) {
+    eta_dot = new double[1+1];
+    eta_dot[1] = 0.0;
+    eta_dotdot = new double[1];
+    for (ich = 0; ich < 1; ich++) {
       eta[ich] = eta_dot[ich] = eta_dotdot[ich] = 0.0;
     }
-    eta_mass = new double[mtchain];
-    size_vector += 2*2*mtchain;
+    eta_mass = new double[1];
+    size_vector += 2*2*1;
   }
 
   if (pstat_flag) {
@@ -543,21 +526,21 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     else if (pstyle == ANISO) size_vector += 2*2*3;
     else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
-    if (mpchain) {
+    if (1) {
       int ich;
-      etap = new double[mpchain];
+      etap = new double[1];
 
       // add one extra dummy thermostat, set to zero
 
-      etap_dot = new double[mpchain+1];
-      etap_dot[mpchain] = 0.0;
-      etap_dotdot = new double[mpchain];
-      for (ich = 0; ich < mpchain; ich++) {
+      etap_dot = new double[1+1];
+      etap_dot[1] = 0.0;
+      etap_dotdot = new double[1];
+      for (ich = 0; ich < 1; ich++) {
         etap[ich] = etap_dot[ich] =
           etap_dotdot[ich] = 0.0;
       }
-      etap_mass = new double[mpchain];
-      size_vector += 2*2*mpchain;
+      etap_mass = new double[1];
+      size_vector += 2*2*1;
     }
 
     if (deviatoric_flag) size_vector += 1;
@@ -601,7 +584,7 @@ FixNHL::~FixNHL()
   if (pstat_flag) {
     if (pcomputeflag) modify->delete_compute(id_press);
     delete [] id_press;
-    if (mpchain) {
+    if (1) {
       delete [] etap;
       delete [] etap_dot;
       delete [] etap_dotdot;
@@ -785,9 +768,9 @@ void FixNHL::setup(int /*vflag*/)
 
   if (tstat_flag) {
     eta_mass[0] = tdof * boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++)
+    for (int ich = 1; ich < 1; ich++)
       eta_mass[ich] = boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++) {
+    for (int ich = 1; ich < 1; ich++) {
       eta_dotdot[ich] = (eta_mass[ich-1]*eta_dot[ich-1]*eta_dot[ich-1] -
                          boltz * t_target) / eta_mass[ich];
     }
@@ -810,11 +793,11 @@ void FixNHL::setup(int /*vflag*/)
 
   // masses and initial forces on barostat thermostat variables
 
-    if (mpchain) {
+    if (1) {
       etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
+      for (int ich = 1; ich < 1; ich++)
         etap_mass[ich] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
+      for (int ich = 1; ich < 1; ich++)
         etap_dotdot[ich] =
           (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] -
            boltz * t_target) / etap_mass[ich];
@@ -830,7 +813,7 @@ void FixNHL::initial_integrate(int /*vflag*/)
 {
   // update eta_press_dot
 
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  if (pstat_flag && 1) nhc_press_integrate();
 
   // update eta_dot
 
@@ -923,7 +906,7 @@ void FixNHL::final_integrate()
   // update eta_press_dot
 
   if (tstat_flag) nhc_temp_integrate();
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  if (pstat_flag && 1) nhc_press_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -944,7 +927,7 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
     // update eta_press_dot
 
-    if (pstat_flag && mpchain) nhc_press_integrate();
+    if (pstat_flag && 1) nhc_press_integrate();
 
     // update eta_dot
 
@@ -1266,9 +1249,9 @@ void FixNHL::write_restart(FILE *fp)
 int FixNHL::size_restart_global()
 {
   int nsize = 2;
-  if (tstat_flag) nsize += 1 + 2*mtchain;
+  if (tstat_flag) nsize += 1 + 2*1;
   if (pstat_flag) {
-    nsize += 16 + 2*mpchain;
+    nsize += 16 + 2*1;
     if (deviatoric_flag) nsize += 6;
   }
 
@@ -1285,10 +1268,10 @@ int FixNHL::pack_restart_data(double *list)
 
   list[n++] = tstat_flag;
   if (tstat_flag) {
-    list[n++] = mtchain;
-    for (int ich = 0; ich < mtchain; ich++)
+    list[n++] = 1;
+    for (int ich = 0; ich < 1; ich++)
       list[n++] = eta[ich];
-    for (int ich = 0; ich < mtchain; ich++)
+    for (int ich = 0; ich < 1; ich++)
       list[n++] = eta_dot[ich];
   }
 
@@ -1308,11 +1291,11 @@ int FixNHL::pack_restart_data(double *list)
     list[n++] = omega_dot[5];
     list[n++] = vol0;
     list[n++] = t0;
-    list[n++] = mpchain;
-    if (mpchain) {
-      for (int ich = 0; ich < mpchain; ich++)
+    list[n++] = 1;
+    if (1) {
+      for (int ich = 0; ich < 1; ich++)
         list[n++] = etap[ich];
-      for (int ich = 0; ich < mpchain; ich++)
+      for (int ich = 0; ich < 1; ich++)
         list[n++] = etap_dot[ich];
     }
 
@@ -1341,10 +1324,10 @@ void FixNHL::restart(char *buf)
   int flag = static_cast<int> (list[n++]);
   if (flag) {
     int m = static_cast<int> (list[n++]);
-    if (tstat_flag && m == mtchain) {
-      for (int ich = 0; ich < mtchain; ich++)
+    if (tstat_flag && m == 1) {
+      for (int ich = 0; ich < 1; ich++)
         eta[ich] = list[n++];
-      for (int ich = 0; ich < mtchain; ich++)
+      for (int ich = 0; ich < 1; ich++)
         eta_dot[ich] = list[n++];
     } else n += 2*m;
   }
@@ -1365,10 +1348,10 @@ void FixNHL::restart(char *buf)
     vol0 = list[n++];
     t0 = list[n++];
     int m = static_cast<int> (list[n++]);
-    if (pstat_flag && m == mpchain) {
-      for (int ich = 0; ich < mpchain; ich++)
+    if (pstat_flag && m == 1) {
+      for (int ich = 0; ich < 1; ich++)
         etap[ich] = list[n++];
-      for (int ich = 0; ich < mpchain; ich++)
+      for (int ich = 0; ich < 1; ich++)
         etap_dot[ich] = list[n++];
     } else n+=2*m;
     flag = static_cast<int> (list[n++]);
@@ -1463,14 +1446,14 @@ double FixNHL::compute_scalar()
   // Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
   // Sum(0.5*p_eta_k^2/Q_k,k=1,M) + L*k*T*eta_1 + Sum(k*T*eta_k,k=2,M),
   // where L = tdof
-  //       M = mtchain
+  //       M = 1
   //       p_eta_k = Q_k*eta_dot[k-1]
   //       Q_1 = L*k*T/t_freq^2
   //       Q_k = k*T/t_freq^2, k > 1
 
   if (tstat_flag) {
     energy += ke_target * eta[0] + 0.5*eta_mass[0]*eta_dot[0]*eta_dot[0];
-    for (ich = 1; ich < mtchain; ich++)
+    for (ich = 1; ich < 1; ich++)
       energy += kt * eta[ich] + 0.5*eta_mass[ich]*eta_dot[ich]*eta_dot[ich];
   }
 
@@ -1502,9 +1485,9 @@ double FixNHL::compute_scalar()
 
     // extra contributions from thermostat chain for barostat
 
-    if (mpchain) {
+    if (1) {
       energy += lkt_press * etap[0] + 0.5*etap_mass[0]*etap_dot[0]*etap_dot[0];
-      for (ich = 1; ich < mpchain; ich++)
+      for (ich = 1; ich < 1; ich++)
         energy += kt * etap[ich] +
           0.5*etap_mass[ich]*etap_dot[ich]*etap_dot[ich];
     }
@@ -1533,10 +1516,10 @@ double FixNHL::compute_vector(int n)
   int ilen;
 
   if (tstat_flag) {
-    ilen = mtchain;
+    ilen = 1;
     if (n < ilen) return eta[n];
     n -= ilen;
-    ilen = mtchain;
+    ilen = 1;
     if (n < ilen) return eta_dot[n];
     n -= ilen;
   }
@@ -1570,11 +1553,11 @@ double FixNHL::compute_vector(int n)
       n -= ilen;
     }
 
-    if (mpchain) {
-      ilen = mpchain;
+    if (1) {
+      ilen = 1;
       if (n < ilen) return etap[n];
       n -= ilen;
-      ilen = mpchain;
+      ilen = 1;
       if (n < ilen) return etap_dot[n];
       n -= ilen;
     }
@@ -1588,7 +1571,7 @@ double FixNHL::compute_vector(int n)
   else volume = domain->xprd * domain->yprd;
 
   if (tstat_flag) {
-    ilen = mtchain;
+    ilen = 1;
     if (n < ilen) {
       ich = n;
       if (ich == 0)
@@ -1597,7 +1580,7 @@ double FixNHL::compute_vector(int n)
         return kt * eta[ich];
     }
     n -= ilen;
-    ilen = mtchain;
+    ilen = 1;
     if (n < ilen) {
       ich = n;
       if (ich == 0)
@@ -1658,15 +1641,15 @@ double FixNHL::compute_vector(int n)
       n -= ilen;
     }
 
-    if (mpchain) {
-      ilen = mpchain;
+    if (1) {
+      ilen = 1;
       if (n < ilen) {
         ich = n;
         if (ich == 0) return lkt_press * etap[0];
         else return kt * etap[ich];
       }
       n -= ilen;
-      ilen = mpchain;
+      ilen = 1;
       if (n < ilen) {
         ich = n;
         if (ich == 0)
@@ -1731,10 +1714,6 @@ void *FixNHL::extract(const char *str, int &dim)
     return &t_start;
   } else if (tstat_flag && strcmp(str,"t_stop") == 0) {
     return &t_stop;
-  } else if (tstat_flag && strcmp(str,"mtchain") == 0) {
-    return &mtchain;
-  } else if (pstat_flag && strcmp(str,"mpchain") == 0) {
-    return &mtchain;
   }
   dim=1;
   if (tstat_flag && strcmp(str,"eta") == 0) {
@@ -1767,7 +1746,7 @@ void FixNHL::nhc_temp_integrate()
 
   if (eta_mass_flag) {
     eta_mass[0] = tdof * boltz * t_target / (t_freq*t_freq);
-    for (int ich = 1; ich < mtchain; ich++)
+    for (int ich = 1; ich < 1; ich++)
       eta_mass[ich] = boltz * t_target / (t_freq*t_freq);
   }
 
@@ -1778,7 +1757,7 @@ void FixNHL::nhc_temp_integrate()
   double ncfac = 1.0/nc_tchain;
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
-    for (ich = mtchain-1; ich > 0; ich--) {
+    for (ich = 1-1; ich > 0; ich--) {
       expfac = exp(-ncfac*dt8*eta_dot[ich+1]);
       eta_dot[ich] *= expfac;
       eta_dot[ich] += eta_dotdot[ich] * ncfac*dt4;
@@ -1805,14 +1784,14 @@ void FixNHL::nhc_temp_integrate()
       eta_dotdot[0] = (kecurrent - ke_target)/eta_mass[0];
     else eta_dotdot[0] = 0.0;
 
-    for (ich = 0; ich < mtchain; ich++)
+    for (ich = 0; ich < 1; ich++)
       eta[ich] += ncfac*dthalf*eta_dot[ich];
 
     eta_dot[0] *= expfac;
     eta_dot[0] += eta_dotdot[0] * ncfac*dt4;
     eta_dot[0] *= expfac;
 
-    for (ich = 1; ich < mtchain; ich++) {
+    for (ich = 1; ich < 1; ich++) {
       expfac = exp(-ncfac*dt8*eta_dot[ich+1]);
       eta_dot[ich] *= expfac;
       eta_dotdot[ich] = (eta_mass[ich-1]*eta_dot[ich-1]*eta_dot[ich-1]
@@ -1850,11 +1829,11 @@ void FixNHL::nhc_press_integrate()
   }
 
   if (etap_mass_flag) {
-    if (mpchain) {
+    if (1) {
       etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
+      for (int ich = 1; ich < 1; ich++)
         etap_mass[ich] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
+      for (int ich = 1; ich < 1; ich++)
         etap_dotdot[ich] =
           (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] -
            boltz * t_target) / etap_mass[ich];
@@ -1884,7 +1863,7 @@ void FixNHL::nhc_press_integrate()
   double ncfac = 1.0/nc_pchain;
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
-    for (ich = mpchain-1; ich > 0; ich--) {
+    for (ich = 1-1; ich > 0; ich--) {
       expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
@@ -1898,7 +1877,7 @@ void FixNHL::nhc_press_integrate()
     etap_dot[0] *= pdrag_factor;
     etap_dot[0] *= expfac;
 
-    for (ich = 0; ich < mpchain; ich++)
+    for (ich = 0; ich < 1; ich++)
       etap[ich] += ncfac*dthalf*etap_dot[ich];
 
     factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
@@ -1925,7 +1904,7 @@ void FixNHL::nhc_press_integrate()
     etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
     etap_dot[0] *= expfac;
 
-    for (ich = 1; ich < mpchain; ich++) {
+    for (ich = 1; ich < 1; ich++) {
       expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dotdot[ich] =
