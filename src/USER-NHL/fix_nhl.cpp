@@ -51,10 +51,7 @@ enum{ISO,ANISO,TRICLINIC};
 
 FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
-  rfix(NULL), id_dilate(NULL), irregular(NULL), id_temp(NULL), id_press(NULL),
-  eta(NULL), eta_dot(NULL), eta_dotdot(NULL),
-  eta_mass(NULL), etap(NULL), etap_dot(NULL), etap_dotdot(NULL),
-  etap_mass(NULL)
+  rfix(NULL), id_dilate(NULL), irregular(NULL), id_temp(NULL), id_press(NULL)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
 
@@ -499,18 +496,8 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   size_vector = 0;
 
-  if (tstat_flag) {
-    eta = new double[1];
-
-    // add one extra dummy thermostat, set to zero
-
-    eta_dot = new double[1+1];
-    eta_dot[1] = 0.0;
-    eta_dotdot = new double[1];
-    eta[0] = eta_dot[0] = eta_dotdot[0] = 0.0;
-    eta_mass = new double[1];
-    size_vector += 2*2*1;
-  }
+  if (tstat_flag)
+    eta_dot = eta_dotdot = 0.0;
 
   if (pstat_flag) {
     omega[0] = omega[1] = omega[2] = 0.0;
@@ -523,16 +510,9 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     else if (pstyle == ANISO) size_vector += 2*2*3;
     else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
-    etap = new double[1];
-
     // add one extra dummy thermostat, set to zero
 
-    etap_dot = new double[1+1];
-    etap_dot[1] = 0.0;
-    etap_dotdot = new double[1];
-    etap[0] = etap_dot[0] = etap_dotdot[0] = 0.0;
-    etap_mass = new double[1];
-    size_vector += 2*2*1;
+    etap_dot = etap_dotdot = 0.0;
 
     if (deviatoric_flag) size_vector += 1;
   }
@@ -565,22 +545,9 @@ FixNHL::~FixNHL()
   if (tcomputeflag) modify->delete_compute(id_temp);
   delete [] id_temp;
 
-  if (tstat_flag) {
-    delete [] eta;
-    delete [] eta_dot;
-    delete [] eta_dotdot;
-    delete [] eta_mass;
-  }
-
   if (pstat_flag) {
     if (pcomputeflag) modify->delete_compute(id_press);
     delete [] id_press;
-    if (1) {
-      delete [] etap;
-      delete [] etap_dot;
-      delete [] etap_dotdot;
-      delete [] etap_mass;
-    }
   }
 }
 
@@ -758,7 +725,7 @@ void FixNHL::setup(int /*vflag*/)
   // masses and initial forces on thermostat variables
 
   if (tstat_flag)
-    eta_mass[0] = tdof * boltz * t_target / (t_freq*t_freq);
+    eta_mass = tdof * boltz * t_target / (t_freq*t_freq);
 
   // masses and initial forces on barostat variables
 
@@ -777,7 +744,7 @@ void FixNHL::setup(int /*vflag*/)
 
   // masses and initial forces on barostat thermostat variables
 
-    etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
+    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
   }
 }
 
@@ -1245,8 +1212,8 @@ int FixNHL::pack_restart_data(double *list)
   list[n++] = tstat_flag;
   if (tstat_flag) {
     list[n++] = 1;
-    list[n++] = eta[0];
-    list[n++] = eta_dot[0];
+    list[n++] = 0;
+    list[n++] = eta_dot;
   }
 
   list[n++] = pstat_flag;
@@ -1266,8 +1233,8 @@ int FixNHL::pack_restart_data(double *list)
     list[n++] = vol0;
     list[n++] = t0;
     list[n++] = 1;
-    list[n++] = etap[0];
-    list[n++] = etap_dot[0];
+    list[n++] = 0;
+    list[n++] = etap_dot;
 
     list[n++] = deviatoric_flag;
     if (deviatoric_flag) {
@@ -1295,8 +1262,8 @@ void FixNHL::restart(char *buf)
   if (flag) {
     int m = static_cast<int> (list[n++]);
     if (tstat_flag && m == 1) {
-      eta[0] = list[n++];
-      eta_dot[0] = list[n++];
+      // eta = list[n++];
+      eta_dot = list[n++];
     } else n += 2*m;
   }
   flag = static_cast<int> (list[n++]);
@@ -1317,8 +1284,8 @@ void FixNHL::restart(char *buf)
     t0 = list[n++];
     int m = static_cast<int> (list[n++]);
     if (pstat_flag && m == 1) {
-      etap[0] = list[n++];
-      etap_dot[0] = list[n++];
+      // etap = list[n++];
+      etap_dot = list[n++];
     } else n+=2*m;
     flag = static_cast<int> (list[n++]);
     if (flag) {
@@ -1438,11 +1405,7 @@ void *FixNHL::extract(const char *str, int &dim)
     return &t_stop;
   }
   dim=1;
-  if (tstat_flag && strcmp(str,"eta") == 0) {
-    return &eta;
-  } else if (pstat_flag && strcmp(str,"etap") == 0) {
-    return &eta;
-  } else if (pstat_flag && strcmp(str,"p_flag") == 0) {
+  if (pstat_flag && strcmp(str,"p_flag") == 0) {
     return &p_flag;
   } else if (pstat_flag && strcmp(str,"p_start") == 0) {
     return &p_start;
@@ -1460,28 +1423,24 @@ void *FixNHL::extract(const char *str, int &dim)
 
 void FixNHL::nhc_temp_integrate()
 {
-  double expfac;
   double kecurrent = tdof * boltz * t_current;
 
   // Update masses, to preserve initial freq, if flag set
 
   if (eta_mass_flag)
-    eta_mass[0] = tdof * boltz * t_target / (t_freq*t_freq);
+    eta_mass = tdof * boltz * t_target / (t_freq*t_freq);
 
-  if (eta_mass[0] > 0.0)
-    eta_dotdot[0] = (kecurrent - ke_target)/eta_mass[0];
-  else eta_dotdot[0] = 0.0;
+  if (eta_mass > 0.0)
+    eta_dotdot = (kecurrent - ke_target)/eta_mass;
+  else eta_dotdot = 0.0;
 
   double ncfac = 1.0/nc_tchain;
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
-    expfac = exp(-ncfac*dt8*eta_dot[1]);
-    eta_dot[0] *= expfac;
-    eta_dot[0] += eta_dotdot[0] * ncfac*dt4;
-    eta_dot[0] *= tdrag_factor;
-    eta_dot[0] *= expfac;
+    eta_dot += eta_dotdot * ncfac*dt4;
+    eta_dot *= tdrag_factor;
 
-    factor_eta = exp(-ncfac*dthalf*eta_dot[0]);
+    factor_eta = exp(-ncfac*dthalf*eta_dot);
     nh_v_temp();
 
     // rescale temperature due to velocity scaling
@@ -1490,15 +1449,11 @@ void FixNHL::nhc_temp_integrate()
     t_current *= factor_eta*factor_eta;
     kecurrent = tdof * boltz * t_current;
 
-    if (eta_mass[0] > 0.0)
-      eta_dotdot[0] = (kecurrent - ke_target)/eta_mass[0];
-    else eta_dotdot[0] = 0.0;
+    if (eta_mass > 0.0)
+      eta_dotdot = (kecurrent - ke_target)/eta_mass;
+    else eta_dotdot = 0.0;
 
-    eta[0] += ncfac*dthalf*eta_dot[0];
-
-    eta_dot[0] *= expfac;
-    eta_dot[0] += eta_dotdot[0] * ncfac*dt4;
-    eta_dot[0] *= expfac;
+    eta_dot += eta_dotdot * ncfac*dt4;
   }
 }
 
@@ -1510,7 +1465,7 @@ void FixNHL::nhc_temp_integrate()
 void FixNHL::nhc_press_integrate()
 {
   int i,pdof;
-  double expfac,factor_etap,kecurrent;
+  double factor_etap,kecurrent;
   double kt = boltz * t_target;
   double lkt_press;
 
@@ -1529,7 +1484,7 @@ void FixNHL::nhc_press_integrate()
   }
 
   if (etap_mass_flag)
-    etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
+    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
 
   kecurrent = 0.0;
   pdof = 0;
@@ -1549,20 +1504,15 @@ void FixNHL::nhc_press_integrate()
 
   if (pstyle == ISO) lkt_press = kt;
   else lkt_press = pdof * kt;
-  etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
+  etap_dotdot = (kecurrent - lkt_press)/etap_mass;
 
   double ncfac = 1.0/nc_pchain;
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
-    expfac = exp(-ncfac*dt8*etap_dot[1]);
-    etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
-    etap_dot[0] *= pdrag_factor;
-    etap_dot[0] *= expfac;
+    etap_dot += etap_dotdot * ncfac*dt4;
+    etap_dot *= pdrag_factor;
 
-    etap[0] += ncfac*dthalf*etap_dot[0];
-
-    factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+    factor_etap = exp(-ncfac*dthalf*etap_dot);
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
 
@@ -1580,11 +1530,9 @@ void FixNHL::nhc_press_integrate()
         if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
     }
 
-    etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
+    etap_dotdot = (kecurrent - lkt_press)/etap_mass;
 
-    etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
-    etap_dot[0] *= expfac;
+    etap_dot += etap_dotdot * ncfac*dt4;
   }
 }
 

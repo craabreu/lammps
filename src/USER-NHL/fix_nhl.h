@@ -77,14 +77,13 @@ class FixNHL : public Fix {
   int tcomputeflag,pcomputeflag;   // 1 = compute was created by fix
                                    // 0 = created externally
 
-  double *eta,*eta_dot;            // thermostat for particles
-  double *eta_dotdot;
-  double *eta_mass;
+  double eta_dot;                  // thermostat for particles
+  double eta_dotdot;
+  double eta_mass;
 
-  double *etap;                    // chain thermostat for barostat
-  double *etap_dot;
-  double *etap_dotdot;
-  double *etap_mass;
+  double etap_dot;                 // chain thermostat for barostat
+  double etap_dotdot;
+  double etap_mass;
   int mpchain;                     // length of chain
 
   int mtk_flag;                    // 0 if using Hoover barostat
