@@ -493,10 +493,8 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     eta_dot = eta_dotdot = 0.0;
 
   if (pstat_flag) {
-    omega[0] = omega[1] = omega[2] = 0.0;
     omega_dot[0] = omega_dot[1] = omega_dot[2] = 0.0;
     omega_mass[0] = omega_mass[1] = omega_mass[2] = 0.0;
-    omega[3] = omega[4] = omega[5] = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
     etap_dot = etap_dotdot = 0.0;
@@ -962,10 +960,6 @@ void FixNHL::remap(double dt)
   int nlocal = atom->nlocal;
   double *h = domain->h;
 
-  // omega is not used, except for book-keeping
-
-  for (int i = 0; i < 6; i++) omega[i] += dt*omega_dot[i];
-
   // convert pertinent atoms and rigid bodies to lamda coords
 
   if (allremap) domain->x2lamda(nlocal);
@@ -1158,7 +1152,7 @@ int FixNHL::size_restart_global()
   int nsize = 2;
   if (tstat_flag) nsize++;
   if (pstat_flag) {
-    nsize += 16;
+    nsize += 10;
     if (deviatoric_flag) nsize += 6;
   }
   return nsize;
@@ -1178,12 +1172,6 @@ int FixNHL::pack_restart_data(double *list)
 
   list[n++] = pstat_flag;
   if (pstat_flag) {
-    list[n++] = omega[0];
-    list[n++] = omega[1];
-    list[n++] = omega[2];
-    list[n++] = omega[3];
-    list[n++] = omega[4];
-    list[n++] = omega[5];
     list[n++] = omega_dot[0];
     list[n++] = omega_dot[1];
     list[n++] = omega_dot[2];
@@ -1225,12 +1213,6 @@ void FixNHL::restart(char *buf)
   }
   flag = static_cast<int> (list[n++]);
   if (flag) {
-    omega[0] = list[n++];
-    omega[1] = list[n++];
-    omega[2] = list[n++];
-    omega[3] = list[n++];
-    omega[4] = list[n++];
-    omega[5] = list[n++];
     omega_dot[0] = list[n++];
     omega_dot[1] = list[n++];
     omega_dot[2] = list[n++];

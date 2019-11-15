@@ -57,7 +57,7 @@ class FixNHL : public Fix {
   int p_flag[6];                   // 1 if control P on this dim, 0 if not
   double p_start[6],p_stop[6];
   double p_freq[6],p_target[6];
-  double omega[6],omega_dot[6];
+  double omega_dot[6];
   double omega_mass[6];
   double p_current[6];
   double drag,tdrag_factor;        // drag factor on particle thermostat
