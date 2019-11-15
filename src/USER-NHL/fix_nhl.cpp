@@ -734,16 +734,8 @@ void FixNHL::setup(int /*vflag*/)
 
 void FixNHL::initial_integrate(int /*vflag*/)
 {
-  // update eta_press_dot
-
-  if (pstat_flag) nhl_press_integrate(dthalf);
-
-  // update eta_dot
-
-  if (tstat_flag) {
+  if (tstat_flag)
     compute_temp_target();
-    nhl_temp_integrate(dthalf);
-  }
 
   // need to recompute pressure to account for change in KE
   // t_current is up-to-date, but compute_temperature is not
@@ -773,7 +765,10 @@ void FixNHL::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) remap(dthalf);
 
-  nve_x(dtfull);
+  nve_x(dthalf);
+  if (tstat_flag) nhl_temp_integrate(dtfull);
+  if (pstat_flag) nhl_press_integrate(dtfull);
+  nve_x(dthalf);
 
   // remap simulation box by 1/2 step
   // redo KSpace coeffs since volume has changed
@@ -824,12 +819,6 @@ void FixNHL::final_integrate()
   }
 
   if (pstat_flag) nh_omega_dot(dthalf);
-
-  // update eta_dot
-  // update eta_press_dot
-
-  if (tstat_flag) nhl_temp_integrate(dthalf);
-  if (pstat_flag) nhl_press_integrate(dthalf);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -847,16 +836,10 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
   if (ilevel == nlevels_respa-1) {
 
-    // update eta_press_dot
-
-    if (pstat_flag) nhl_press_integrate(dthalf);
-
     // update eta_dot
 
-    if (tstat_flag) {
+    if (tstat_flag)
       compute_temp_target();
-      nhl_temp_integrate(dthalf);
-    }
 
     // recompute pressure to account for change in KE
     // t_current is up-to-date, but compute_temperature is not
@@ -889,7 +872,10 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
   if (ilevel == 0) {
     if (pstat_flag) remap(dthalf);
-    nve_x(dtfull);
+    nve_x(dthalf);
+    if (tstat_flag) nhl_temp_integrate(dtfull);
+    if (pstat_flag) nhl_press_integrate(dtfull);
+    nve_x(dthalf);
     if (pstat_flag) remap(dthalf);
   }
 
