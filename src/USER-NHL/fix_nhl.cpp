@@ -595,12 +595,8 @@ void FixNHL::init()
 
   // set timesteps and frequencies
 
-  dtv = update->dt;
-  dtf = 0.5 * update->dt * force->ftm2v;
+  dtfull = update->dt;
   dthalf = 0.5 * update->dt;
-  dt4 = 0.25 * update->dt;
-  dt8 = 0.125 * update->dt;
-  dto = dthalf;
 
   p_freq_max = 0.0;
   if (pstat_flag) {
@@ -643,7 +639,6 @@ void FixNHL::init()
   if (strstr(update->integrate_style,"respa")) {
     nlevels_respa = ((Respa *) update->integrate)->nlevels;
     step_respa = ((Respa *) update->integrate)->step;
-    dto = 0.5*step_respa[0];
   }
 
   // detect if any rigid fixes exist so rigid bodies move when box is remapped
@@ -741,13 +736,13 @@ void FixNHL::initial_integrate(int /*vflag*/)
 {
   // update eta_press_dot
 
-  if (pstat_flag) nhl_press_integrate();
+  if (pstat_flag) nhl_press_integrate(dthalf);
 
   // update eta_dot
 
   if (tstat_flag) {
     compute_temp_target();
-    nhl_temp_integrate();
+    nhl_temp_integrate(dthalf);
   }
 
   // need to recompute pressure to account for change in KE
@@ -768,23 +763,23 @@ void FixNHL::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) {
     compute_press_target();
-    nh_omega_dot();
-    nh_v_press();
+    nh_omega_dot(dthalf);
+    nh_v_press(dthalf);
   }
 
-  nve_v();
+  nve_v(dthalf);
 
   // remap simulation box by 1/2 step
 
-  if (pstat_flag) remap();
+  if (pstat_flag) remap(dthalf);
 
-  nve_x();
+  nve_x(dtfull);
 
   // remap simulation box by 1/2 step
   // redo KSpace coeffs since volume has changed
 
   if (pstat_flag) {
-    remap();
+    remap(dthalf);
     if (kspace_flag) force->kspace->setup();
   }
 }
@@ -795,9 +790,9 @@ void FixNHL::initial_integrate(int /*vflag*/)
 
 void FixNHL::final_integrate()
 {
-  nve_v();
+  nve_v(dthalf);
 
-  // re-compute temp before nh_v_press()
+  // re-compute temp before nh_v_press(dthalf)
   // only needed for temperature computes with BIAS on reneighboring steps:
   //   b/c some biases store per-atom values (e.g. temp/profile)
   //   per-atom values are invalid if reneigh/comm occurred
@@ -806,9 +801,9 @@ void FixNHL::final_integrate()
   if (which == BIAS && neighbor->ago == 0)
     t_current = temperature->compute_scalar();
 
-  if (pstat_flag) nh_v_press();
+  if (pstat_flag) nh_v_press(dthalf);
 
-  // compute new T,P after velocities rescaled by nh_v_press()
+  // compute new T,P after velocities rescaled by nh_v_press(dthalf)
   // compute appropriately coupled elements of mvv_current
 
   t_current = temperature->compute_scalar();
@@ -828,13 +823,13 @@ void FixNHL::final_integrate()
     pressure->addstep(update->ntimestep+1);
   }
 
-  if (pstat_flag) nh_omega_dot();
+  if (pstat_flag) nh_omega_dot(dthalf);
 
   // update eta_dot
   // update eta_press_dot
 
-  if (tstat_flag) nhl_temp_integrate();
-  if (pstat_flag) nhl_press_integrate();
+  if (tstat_flag) nhl_temp_integrate(dthalf);
+  if (pstat_flag) nhl_press_integrate(dthalf);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -843,8 +838,7 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
-  dtv = step_respa[ilevel];
-  dtf = 0.5 * step_respa[ilevel] * force->ftm2v;
+  dtfull = step_respa[ilevel];
   dthalf = 0.5 * step_respa[ilevel];
 
   // outermost level - update eta_dot and omega_dot, apply to v
@@ -855,13 +849,13 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
     // update eta_press_dot
 
-    if (pstat_flag) nhl_press_integrate();
+    if (pstat_flag) nhl_press_integrate(dthalf);
 
     // update eta_dot
 
     if (tstat_flag) {
       compute_temp_target();
-      nhl_temp_integrate();
+      nhl_temp_integrate(dthalf);
     }
 
     // recompute pressure to account for change in KE
@@ -882,21 +876,21 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
     if (pstat_flag) {
       compute_press_target();
-      nh_omega_dot();
-      nh_v_press();
+      nh_omega_dot(dthalf);
+      nh_v_press(dthalf);
     }
 
-    nve_v();
+    nve_v(dthalf);
 
-  } else nve_v();
+  } else nve_v(dthalf);
 
   // innermost level - also update x only for atoms in group
   // if barostat, perform 1/2 step remap before and after
 
   if (ilevel == 0) {
-    if (pstat_flag) remap();
-    nve_x();
-    if (pstat_flag) remap();
+    if (pstat_flag) remap(dthalf);
+    nve_x(dtfull);
+    if (pstat_flag) remap(dthalf);
   }
 
   // if barostat, redo KSpace coeffs at outermost level,
@@ -912,14 +906,13 @@ void FixNHL::final_integrate_respa(int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
-  dtf = 0.5 * step_respa[ilevel] * force->ftm2v;
   dthalf = 0.5 * step_respa[ilevel];
 
   // outermost level - update eta_dot and omega_dot, apply via final_integrate
   // all other levels - NVE update of v
 
   if (ilevel == nlevels_respa-1) final_integrate();
-  else nve_v();
+  else nve_v(dthalf);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -972,7 +965,7 @@ void FixNHL::couple()
    if rigid bodies exist, scale rigid body centers-of-mass
 ------------------------------------------------------------------------- */
 
-void FixNHL::remap()
+void FixNHL::remap(double dt)
 {
   int i;
   double oldlo,oldhi;
@@ -985,7 +978,7 @@ void FixNHL::remap()
 
   // omega is not used, except for book-keeping
 
-  for (int i = 0; i < 6; i++) omega[i] += dto*omega_dot[i];
+  for (int i = 0; i < 6; i++) omega[i] += dt*omega_dot[i];
 
   // convert pertinent atoms and rigid bodies to lamda coords
 
@@ -1015,39 +1008,39 @@ void FixNHL::remap()
   //
   // Ordering of operations preserves time symmetry.
 
-  double dto2 = dto/2.0;
-  double dto4 = dto/4.0;
-  double dto8 = dto/8.0;
+  double dt2 = dt/2.0;
+  double dt4 = dt/4.0;
+  double dt8 = dt/8.0;
 
   // off-diagonal components, first half
 
   if (pstyle == TRICLINIC) {
 
     if (p_flag[4]) {
-      expfac = exp(dto8*omega_dot[0]);
+      expfac = exp(dt8*omega_dot[0]);
       h[4] *= expfac;
-      h[4] += dto4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
+      h[4] += dt4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
       h[4] *= expfac;
     }
 
     if (p_flag[3]) {
-      expfac = exp(dto4*omega_dot[1]);
+      expfac = exp(dt4*omega_dot[1]);
       h[3] *= expfac;
-      h[3] += dto2*(omega_dot[3]*h[2]);
+      h[3] += dt2*(omega_dot[3]*h[2]);
       h[3] *= expfac;
     }
 
     if (p_flag[5]) {
-      expfac = exp(dto4*omega_dot[0]);
+      expfac = exp(dt4*omega_dot[0]);
       h[5] *= expfac;
-      h[5] += dto2*(omega_dot[5]*h[1]);
+      h[5] += dt2*(omega_dot[5]*h[1]);
       h[5] *= expfac;
     }
 
     if (p_flag[4]) {
-      expfac = exp(dto8*omega_dot[0]);
+      expfac = exp(dt8*omega_dot[0]);
       h[4] *= expfac;
-      h[4] += dto4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
+      h[4] += dt4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
       h[4] *= expfac;
     }
   }
@@ -1058,7 +1051,7 @@ void FixNHL::remap()
   if (p_flag[0]) {
     oldlo = domain->boxlo[0];
     oldhi = domain->boxhi[0];
-    expfac = exp(dto*omega_dot[0]);
+    expfac = exp(dt*omega_dot[0]);
     domain->boxlo[0] = (oldlo-fixedpoint[0])*expfac + fixedpoint[0];
     domain->boxhi[0] = (oldhi-fixedpoint[0])*expfac + fixedpoint[0];
   }
@@ -1066,7 +1059,7 @@ void FixNHL::remap()
   if (p_flag[1]) {
     oldlo = domain->boxlo[1];
     oldhi = domain->boxhi[1];
-    expfac = exp(dto*omega_dot[1]);
+    expfac = exp(dt*omega_dot[1]);
     domain->boxlo[1] = (oldlo-fixedpoint[1])*expfac + fixedpoint[1];
     domain->boxhi[1] = (oldhi-fixedpoint[1])*expfac + fixedpoint[1];
     if (scalexy) h[5] *= expfac;
@@ -1075,7 +1068,7 @@ void FixNHL::remap()
   if (p_flag[2]) {
     oldlo = domain->boxlo[2];
     oldhi = domain->boxhi[2];
-    expfac = exp(dto*omega_dot[2]);
+    expfac = exp(dt*omega_dot[2]);
     domain->boxlo[2] = (oldlo-fixedpoint[2])*expfac + fixedpoint[2];
     domain->boxhi[2] = (oldhi-fixedpoint[2])*expfac + fixedpoint[2];
     if (scalexz) h[4] *= expfac;
@@ -1087,30 +1080,30 @@ void FixNHL::remap()
   if (pstyle == TRICLINIC) {
 
     if (p_flag[4]) {
-      expfac = exp(dto8*omega_dot[0]);
+      expfac = exp(dt8*omega_dot[0]);
       h[4] *= expfac;
-      h[4] += dto4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
+      h[4] += dt4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
       h[4] *= expfac;
     }
 
     if (p_flag[3]) {
-      expfac = exp(dto4*omega_dot[1]);
+      expfac = exp(dt4*omega_dot[1]);
       h[3] *= expfac;
-      h[3] += dto2*(omega_dot[3]*h[2]);
+      h[3] += dt2*(omega_dot[3]*h[2]);
       h[3] *= expfac;
     }
 
     if (p_flag[5]) {
-      expfac = exp(dto4*omega_dot[0]);
+      expfac = exp(dt4*omega_dot[0]);
       h[5] *= expfac;
-      h[5] += dto2*(omega_dot[5]*h[1]);
+      h[5] += dt2*(omega_dot[5]*h[1]);
       h[5] *= expfac;
     }
 
     if (p_flag[4]) {
-      expfac = exp(dto8*omega_dot[0]);
+      expfac = exp(dt8*omega_dot[0]);
       h[4] *= expfac;
-      h[4] += dto4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
+      h[4] += dt4*(omega_dot[5]*h[3]+omega_dot[4]*h[2]);
       h[4] *= expfac;
     }
 
@@ -1348,17 +1341,8 @@ void FixNHL::reset_target(double t_new)
 
 void FixNHL::reset_dt()
 {
-  dtv = update->dt;
-  dtf = 0.5 * update->dt * force->ftm2v;
+  dtfull = update->dt;
   dthalf = 0.5 * update->dt;
-  dt4 = 0.25 * update->dt;
-  dt8 = 0.125 * update->dt;
-  dto = dthalf;
-
-  // If using respa, then remap is performed in innermost level
-
-  if (strstr(update->integrate_style,"respa"))
-    dto = 0.5*step_respa[0];
 
   if (pstat_flag)
     pdrag_factor = 1.0 - (update->dt * p_freq_max * drag / nc_pchain);
@@ -1398,7 +1382,7 @@ void *FixNHL::extract(const char *str, int &dim)
    perform half-step update of chain thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhl_temp_integrate()
+void FixNHL::nhl_temp_integrate(double dt)
 {
   double kecurrent = tdof * boltz * t_current;
 
@@ -1411,13 +1395,14 @@ void FixNHL::nhl_temp_integrate()
     eta_dotdot = (kecurrent - ke_target)/eta_mass;
   else eta_dotdot = 0.0;
 
-  double ncfac = 1.0/nc_tchain;
+  double dt_small = dt/nc_tchain;
+  double dthalf_small = 0.5*dt_small;
   for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
-    eta_dot += eta_dotdot * ncfac*dt4;
+    eta_dot += eta_dotdot * dthalf_small;
     eta_dot *= tdrag_factor;
 
-    factor_eta = exp(-ncfac*dthalf*eta_dot);
+    factor_eta = exp(-dt_small*eta_dot);
     nh_v_temp();
 
     // rescale temperature due to velocity scaling
@@ -1430,7 +1415,7 @@ void FixNHL::nhl_temp_integrate()
       eta_dotdot = (kecurrent - ke_target)/eta_mass;
     else eta_dotdot = 0.0;
 
-    eta_dot += eta_dotdot * ncfac*dt4;
+    eta_dot += eta_dotdot * dthalf_small;
   }
 }
 
@@ -1439,7 +1424,7 @@ void FixNHL::nhl_temp_integrate()
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhl_press_integrate()
+void FixNHL::nhl_press_integrate(double dt)
 {
   int i,pdof;
   double factor_etap,kecurrent;
@@ -1483,13 +1468,14 @@ void FixNHL::nhl_press_integrate()
   else lkt_press = pdof * kt;
   etap_dotdot = (kecurrent - lkt_press)/etap_mass;
 
-  double ncfac = 1.0/nc_pchain;
+  double dt_small = dt/nc_pchain;;
+  double dthalf_small = 0.5*dt_small;
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
-    etap_dot += etap_dotdot * ncfac*dt4;
+    etap_dot += etap_dotdot * dthalf_small;
     etap_dot *= pdrag_factor;
 
-    factor_etap = exp(-ncfac*dthalf*etap_dot);
+    factor_etap = exp(-dt_small*etap_dot);
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
 
@@ -1509,7 +1495,7 @@ void FixNHL::nhl_press_integrate()
 
     etap_dotdot = (kecurrent - lkt_press)/etap_mass;
 
-    etap_dot += etap_dotdot * ncfac*dt4;
+    etap_dot += etap_dotdot * dthalf_small;
   }
 }
 
@@ -1517,17 +1503,18 @@ void FixNHL::nhl_press_integrate()
    perform half-step barostat scaling of velocities
 -----------------------------------------------------------------------*/
 
-void FixNHL::nh_v_press()
+void FixNHL::nh_v_press(double dt)
 {
+  double dthalf = 0.5*dt;
   double factor[3];
   double **v = atom->v;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  factor[0] = exp(-dt4*(omega_dot[0]+mtk_term2));
-  factor[1] = exp(-dt4*(omega_dot[1]+mtk_term2));
-  factor[2] = exp(-dt4*(omega_dot[2]+mtk_term2));
+  factor[0] = exp(-dthalf*(omega_dot[0]+mtk_term2));
+  factor[1] = exp(-dthalf*(omega_dot[1]+mtk_term2));
+  factor[2] = exp(-dthalf*(omega_dot[2]+mtk_term2));
 
   if (which == NOBIAS) {
     for (int i = 0; i < nlocal; i++) {
@@ -1536,8 +1523,8 @@ void FixNHL::nh_v_press()
         v[i][1] *= factor[1];
         v[i][2] *= factor[2];
         if (pstyle == TRICLINIC) {
-          v[i][0] += -dthalf*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
-          v[i][1] += -dthalf*v[i][2]*omega_dot[3];
+          v[i][0] += -dt*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
+          v[i][1] += -dt*v[i][2]*omega_dot[3];
         }
         v[i][0] *= factor[0];
         v[i][1] *= factor[1];
@@ -1552,8 +1539,8 @@ void FixNHL::nh_v_press()
         v[i][1] *= factor[1];
         v[i][2] *= factor[2];
         if (pstyle == TRICLINIC) {
-          v[i][0] += -dthalf*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
-          v[i][1] += -dthalf*v[i][2]*omega_dot[3];
+          v[i][0] += -dt*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
+          v[i][1] += -dt*v[i][2]*omega_dot[3];
         }
         v[i][0] *= factor[0];
         v[i][1] *= factor[1];
@@ -1568,8 +1555,9 @@ void FixNHL::nh_v_press()
    perform half-step update of velocities
 -----------------------------------------------------------------------*/
 
-void FixNHL::nve_v()
+void FixNHL::nve_v(double dt)
 {
+  double dtf = dt * force->ftm2v;
   double dtfm;
   double **v = atom->v;
   double **f = atom->f;
@@ -1605,7 +1593,7 @@ void FixNHL::nve_v()
    perform full-step update of positions
 -----------------------------------------------------------------------*/
 
-void FixNHL::nve_x()
+void FixNHL::nve_x(double dt)
 {
   double **x = atom->x;
   double **v = atom->v;
@@ -1617,9 +1605,9 @@ void FixNHL::nve_x()
 
   for (int i = 0; i < nlocal; i++) {
     if (mask[i] & groupbit) {
-      x[i][0] += dtv * v[i][0];
-      x[i][1] += dtv * v[i][1];
-      x[i][2] += dtv * v[i][2];
+      x[i][0] += dt * v[i][0];
+      x[i][1] += dt * v[i][1];
+      x[i][2] += dt * v[i][2];
     }
   }
 }
@@ -1822,7 +1810,7 @@ void FixNHL::compute_press_target()
    update omega_dot, omega
 -----------------------------------------------------------------------*/
 
-void FixNHL::nh_omega_dot()
+void FixNHL::nh_omega_dot(double dt)
 {
   double f_omega,volume;
 
@@ -1850,7 +1838,7 @@ void FixNHL::nh_omega_dot()
       f_omega = (p_current[i]-p_hydro)*volume /
         (omega_mass[i] * nktv2p) + mtk_term1 / omega_mass[i];
       if (deviatoric_flag) f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
-      omega_dot[i] += f_omega*dthalf;
+      omega_dot[i] += f_omega*dt;
       omega_dot[i] *= pdrag_factor;
     }
 
@@ -1868,7 +1856,7 @@ void FixNHL::nh_omega_dot()
         f_omega = p_current[i]*volume/(omega_mass[i] * nktv2p);
         if (deviatoric_flag)
           f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
-        omega_dot[i] += f_omega*dthalf;
+        omega_dot[i] += f_omega*dt;
         omega_dot[i] *= pdrag_factor;
       }
     }

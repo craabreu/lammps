@@ -41,7 +41,7 @@ class FixNHL : public Fix {
 
  protected:
   int dimension,which;
-  double dtv,dtf,dthalf,dt4,dt8,dto;
+  double dtfull,dthalf;
   double boltz,nktv2p,tdof;
   double vol0;                      // reference volume
   double t0;                        // reference temperature
@@ -118,13 +118,13 @@ class FixNHL : public Fix {
   double fixedpoint[3];            // location of dilation fixed-point
 
   void couple();
-  virtual void remap();
-  void nhl_temp_integrate();
-  void nhl_press_integrate();
+  virtual void remap(double);
+  void nhl_temp_integrate(double);
+  void nhl_press_integrate(double);
 
-  virtual void nve_x();            // may be overwritten by child classes
-  virtual void nve_v();
-  virtual void nh_v_press();
+  virtual void nve_x(double);      // may be overwritten by child classes
+  virtual void nve_v(double);
+  virtual void nh_v_press(double);
   virtual void nh_v_temp();
   virtual void compute_temp_target();
   virtual int size_restart_global();
@@ -133,7 +133,7 @@ class FixNHL : public Fix {
   void compute_deviatoric();
   double compute_strain_energy();
   void compute_press_target();
-  void nh_omega_dot();
+  void nh_omega_dot(double);
 };
 
 }
