@@ -153,64 +153,64 @@ Self-explanatory.  Check the input script syntax and compare to the
 documentation for the command.  You can use -echo screen as a
 command-line option when running LAMMPS to see the offending line.
 
-E: Target temperature for fix nvt/npt/nph cannot be 0.0
+E: Target temperature for fix <ensemble>/nhl cannot be 0.0
 
 Self-explanatory.
 
-E: Invalid fix nvt/npt/nph command for a 2d simulation
+E: Invalid fix <ensemble>/nhl command for a 2d simulation
 
 Cannot control z dimension in a 2d model.
 
-E: Fix nvt/npt/nph dilate group ID does not exist
+E: Fix <ensemble>/nhl dilate group ID does not exist
 
 Self-explanatory.
 
-E: Invalid fix nvt/npt/nph command pressure settings
+E: Invalid fix <ensemble>/nhl command pressure settings
 
 If multiple dimensions are coupled, those dimensions must be
 specified.
 
-E: Cannot use fix nvt/npt/nph on a non-periodic dimension
+E: Cannot use fix <ensemble>/nhl on a non-periodic dimension
 
 When specifying a diagonal pressure component, the dimension must be
 periodic.
 
-E: Cannot use fix nvt/npt/nph on a 2nd non-periodic dimension
+E: Cannot use fix <ensemble>/nhl on a 2nd non-periodic dimension
 
 When specifying an off-diagonal pressure component, the 2nd of the two
 dimensions must be periodic.  E.g. if the xy component is specified,
 then the y dimension must be periodic.
 
-E: Cannot use fix nvt/npt/nph with yz scaling when z is non-periodic dimension
+E: Cannot use fix <ensemble>/nhl with yz scaling when z is non-periodic dimension
 
 The 2nd dimension in the barostatted tilt factor must be periodic.
 
-E: Cannot use fix nvt/npt/nph with xz scaling when z is non-periodic dimension
+E: Cannot use fix <ensemble>/nhl with xz scaling when z is non-periodic dimension
 
 The 2nd dimension in the barostatted tilt factor must be periodic.
 
-E: Cannot use fix nvt/npt/nph with xy scaling when y is non-periodic dimension
+E: Cannot use fix <ensemble>/nhl with xy scaling when y is non-periodic dimension
 
 The 2nd dimension in the barostatted tilt factor must be periodic.
 
-E: Cannot use fix nvt/npt/nph with both yz dynamics and yz scaling
+E: Cannot use fix <ensemble>/nhl with both yz dynamics and yz scaling
 
 Self-explanatory.
 
-E: Cannot use fix nvt/npt/nph with both xz dynamics and xz scaling
+E: Cannot use fix <ensemble>/nhl with both xz dynamics and xz scaling
 
 Self-explanatory.
 
-E: Cannot use fix nvt/npt/nph with both xy dynamics and xy scaling
+E: Cannot use fix <ensemble>/nhl with both xy dynamics and xy scaling
 
 Self-explanatory.
 
-E: Can not specify Pxy/Pxz/Pyz in fix nvt/npt/nph with non-triclinic box
+E: Can not specify Pxy/Pxz/Pyz in fix <ensemble>/nhl with non-triclinic box
 
 Only triclinic boxes can be used with off-diagonal pressure components.
 See the region prism command for details.
 
-E: Invalid fix nvt/npt/nph pressure settings
+E: Invalid fix <ensemble>/nhl pressure settings
 
 Settings for coupled dimensions must be the same.
 
@@ -222,7 +222,7 @@ E: Using update dipole flag requires atom attribute mu
 
 Self-explanatory.
 
-E: Fix nvt/npt/nph damping parameters must be > 0.0
+E: Fix <ensemble>/nhl damping parameters must be > 0.0
 
 Self-explanatory.
 
