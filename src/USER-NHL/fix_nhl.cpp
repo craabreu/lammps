@@ -510,8 +510,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     else if (pstyle == ANISO) size_vector += 2*2*3;
     else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
-    // add one extra dummy thermostat, set to zero
-
     etap_dot = etap_dotdot = 0.0;
 
     if (deviatoric_flag) size_vector += 1;
@@ -1192,9 +1190,9 @@ void FixNHL::write_restart(FILE *fp)
 int FixNHL::size_restart_global()
 {
   int nsize = 2;
-  if (tstat_flag) nsize += 1 + 2*1;
+  if (tstat_flag) nsize++;
   if (pstat_flag) {
-    nsize += 16 + 2*1;
+    nsize += 16;
     if (deviatoric_flag) nsize += 6;
   }
 
@@ -1210,11 +1208,8 @@ int FixNHL::pack_restart_data(double *list)
   int n = 0;
 
   list[n++] = tstat_flag;
-  if (tstat_flag) {
-    list[n++] = 1;
-    list[n++] = 0;
+  if (tstat_flag)
     list[n++] = eta_dot;
-  }
 
   list[n++] = pstat_flag;
   if (pstat_flag) {
@@ -1232,8 +1227,6 @@ int FixNHL::pack_restart_data(double *list)
     list[n++] = omega_dot[5];
     list[n++] = vol0;
     list[n++] = t0;
-    list[n++] = 1;
-    list[n++] = 0;
     list[n++] = etap_dot;
 
     list[n++] = deviatoric_flag;
@@ -1260,11 +1253,10 @@ void FixNHL::restart(char *buf)
   double *list = (double *) buf;
   int flag = static_cast<int> (list[n++]);
   if (flag) {
-    int m = static_cast<int> (list[n++]);
-    if (tstat_flag && m == 1) {
-      // eta = list[n++];
+    if (tstat_flag)
       eta_dot = list[n++];
-    } else n += 2*m;
+    else
+      n++;
   }
   flag = static_cast<int> (list[n++]);
   if (flag) {
@@ -1282,11 +1274,10 @@ void FixNHL::restart(char *buf)
     omega_dot[5] = list[n++];
     vol0 = list[n++];
     t0 = list[n++];
-    int m = static_cast<int> (list[n++]);
-    if (pstat_flag && m == 1) {
-      // etap = list[n++];
+    if (pstat_flag)
       etap_dot = list[n++];
-    } else n+=2*m;
+    else
+      n++;
     flag = static_cast<int> (list[n++]);
     if (flag) {
       h0_inv[0] = list[n++];
