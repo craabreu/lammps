@@ -46,7 +46,7 @@ enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
 /* ----------------------------------------------------------------------
-   NVT,NPH,NPT integrators for Nose-Hoover-Langevin equations of motion
+   NVT,NPT integrators for Nose-Hoover-Langevin equations of motion
  ---------------------------------------------------------------------- */
 
 FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
@@ -58,11 +58,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   restart_global = 1;
   dynamic_group_allow = 1;
   time_integrate = 1;
-  scalar_flag = 1;
-  vector_flag = 1;
-  global_freq = 1;
-  extscalar = 1;
-  extvector = 0;
 
   // default values
 
@@ -494,8 +489,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   // Nose/Hoover temp and pressure init
 
-  size_vector = 0;
-
   if (tstat_flag)
     eta_dot = eta_dotdot = 0.0;
 
@@ -506,13 +499,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     omega[3] = omega[4] = omega[5] = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
-    if (pstyle == ISO) size_vector += 2*2*1;
-    else if (pstyle == ANISO) size_vector += 2*2*3;
-    else if (pstyle == TRICLINIC) size_vector += 2*2*6;
-
     etap_dot = etap_dotdot = 0.0;
-
-    if (deviatoric_flag) size_vector += 1;
   }
 
   nrigid = 0;
@@ -754,13 +741,13 @@ void FixNHL::initial_integrate(int /*vflag*/)
 {
   // update eta_press_dot
 
-  if (pstat_flag && 1) nhc_press_integrate();
+  if (pstat_flag) nhl_press_integrate();
 
   // update eta_dot
 
   if (tstat_flag) {
     compute_temp_target();
-    nhc_temp_integrate();
+    nhl_temp_integrate();
   }
 
   // need to recompute pressure to account for change in KE
@@ -846,8 +833,8 @@ void FixNHL::final_integrate()
   // update eta_dot
   // update eta_press_dot
 
-  if (tstat_flag) nhc_temp_integrate();
-  if (pstat_flag && 1) nhc_press_integrate();
+  if (tstat_flag) nhl_temp_integrate();
+  if (pstat_flag) nhl_press_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -868,13 +855,13 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
     // update eta_press_dot
 
-    if (pstat_flag && 1) nhc_press_integrate();
+    if (pstat_flag) nhl_press_integrate();
 
     // update eta_dot
 
     if (tstat_flag) {
       compute_temp_target();
-      nhc_temp_integrate();
+      nhl_temp_integrate();
     }
 
     // recompute pressure to account for change in KE
@@ -1195,7 +1182,6 @@ int FixNHL::size_restart_global()
     nsize += 16;
     if (deviatoric_flag) nsize += 6;
   }
-
   return nsize;
 }
 
@@ -1412,7 +1398,7 @@ void *FixNHL::extract(const char *str, int &dim)
    perform half-step update of chain thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhc_temp_integrate()
+void FixNHL::nhl_temp_integrate()
 {
   double kecurrent = tdof * boltz * t_current;
 
@@ -1453,7 +1439,7 @@ void FixNHL::nhc_temp_integrate()
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhc_press_integrate()
+void FixNHL::nhl_press_integrate()
 {
   int i,pdof;
   double factor_etap,kecurrent;

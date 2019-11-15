@@ -119,8 +119,8 @@ class FixNHL : public Fix {
 
   void couple();
   virtual void remap();
-  void nhc_temp_integrate();
-  void nhc_press_integrate();
+  void nhl_temp_integrate();
+  void nhl_press_integrate();
 
   virtual void nve_x();            // may be overwritten by child classes
   virtual void nve_v();
