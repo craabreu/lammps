@@ -87,6 +87,7 @@ class FixNHL : public Fix {
   double *etap_dot;
   double *etap_dotdot;
   double *etap_mass;
+  int mpchain;                     // length of chain
 
   int mtk_flag;                    // 0 if using Hoover barostat
   int pdim;                        // number of barostatted dims
