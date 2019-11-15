@@ -30,8 +30,6 @@ class FixNHL : public Fix {
   void initial_integrate_respa(int, int, int);
   void final_integrate_respa(int, int);
   virtual void pre_exchange();
-  double compute_scalar();
-  virtual double compute_vector(int);
   void write_restart(FILE *);
   virtual int pack_restart_data(double *); // pack restart data
   virtual void restart(char *);
