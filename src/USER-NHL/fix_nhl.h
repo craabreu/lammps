@@ -86,7 +86,6 @@ class FixNHL : public Fix {
   double etap_dot[6];              // chain thermostat for barostat
   double etap_mass;
 
-  int mtk_flag;                    // 0 if using Hoover barostat
   int pdim;                        // number of barostatted dims
   double p_freq_max;               // maximum barostat frequency
 

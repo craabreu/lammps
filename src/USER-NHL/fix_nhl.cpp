@@ -64,7 +64,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   allremap = 1;
   id_dilate = NULL;
   nc_tchain = nc_pchain = 1;
-  mtk_flag = 1;
   deviatoric_flag = 0;
   nreset_h0 = 0;
   eta_mass_flag = 1;
@@ -255,12 +254,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"mtk") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      if (strcmp(arg[iarg+1],"yes") == 0) mtk_flag = 1;
-      else if (strcmp(arg[iarg+1],"no") == 0) mtk_flag = 0;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"tloop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
       nc_tchain = force->inumeric(FLERR,arg[iarg+1]);
@@ -858,10 +851,9 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
       nh_omega_dot(dthalf);
       nh_v_press(dthalf);
     }
+  }
 
-    nve_v(dthalf);
-
-  } else nve_v(dthalf);
+  nve_v(dthalf);
 
   // innermost level - also update x only for atoms in group
   // if barostat, perform 1/2 step remap before and after
@@ -1696,17 +1688,15 @@ void FixNHL::nh_omega_dot(double dt)
   if (deviatoric_flag) compute_deviatoric();
 
   mtk_term1 = 0.0;
-  if (mtk_flag) {
-    if (pstyle == ISO) {
-      mtk_term1 = tdof * boltz * t_current;
-      mtk_term1 /= pdim * atom->natoms;
-    } else {
-      double *mvv_current = temperature->vector;
-      for (int i = 0; i < 3; i++)
-        if (p_flag[i])
-          mtk_term1 += mvv_current[i];
-      mtk_term1 /= pdim * atom->natoms;
-    }
+  if (pstyle == ISO) {
+    mtk_term1 = tdof * boltz * t_current;
+    mtk_term1 /= pdim * atom->natoms;
+  } else {
+    double *mvv_current = temperature->vector;
+    for (int i = 0; i < 3; i++)
+      if (p_flag[i])
+        mtk_term1 += mvv_current[i];
+    mtk_term1 /= pdim * atom->natoms;
   }
 
   for (int i = 0; i < 3; i++)
@@ -1718,12 +1708,10 @@ void FixNHL::nh_omega_dot(double dt)
     }
 
   mtk_term2 = 0.0;
-  if (mtk_flag) {
-    for (int i = 0; i < 3; i++)
-      if (p_flag[i])
-        mtk_term2 += omega_dot[i];
-    if (pdim > 0) mtk_term2 /= pdim * atom->natoms;
-  }
+  for (int i = 0; i < 3; i++)
+    if (p_flag[i])
+      mtk_term2 += omega_dot[i];
+  if (pdim > 0) mtk_term2 /= pdim * atom->natoms;
 
   if (pstyle == TRICLINIC) {
     for (int i = 3; i < 6; i++) {
@@ -1855,11 +1843,9 @@ void FixNHL::copy_arrays(int i, int j, int /*delflag*/)
 int FixNHL::pack_exchange(int i, double *buf)
 {
   int n = 0;
-  if (1) {
-    buf[n++] = eta_dot[i][0];
-    buf[n++] = eta_dot[i][1];
-    buf[n++] = eta_dot[i][2];
-  }
+  buf[n++] = eta_dot[i][0];
+  buf[n++] = eta_dot[i][1];
+  buf[n++] = eta_dot[i][2];
   return n;
 }
 
