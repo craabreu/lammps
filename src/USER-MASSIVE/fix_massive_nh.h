@@ -11,17 +11,17 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#ifndef LMP_FIX_NHL_H
-#define LMP_FIX_NHL_H
+#ifndef LMP_FIX_MASSIVE_NH_H
+#define LMP_FIX_MASSIVE_NH_H
 
 #include "fix.h"
 
 namespace LAMMPS_NS {
 
-class FixNHL : public Fix {
+class FixMassiveNH : public Fix {
  public:
-  FixNHL(class LAMMPS *, int, char **);
-  virtual ~FixNHL();
+  FixMassiveNH(class LAMMPS *, int, char **);
+  virtual ~FixMassiveNH();
   int setmask();
   virtual void init();
   virtual void setup(int);

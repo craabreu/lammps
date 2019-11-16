@@ -13,21 +13,21 @@
 
 #ifdef FIX_CLASS
 
-FixStyle(nvt/nhl,FixNVT_NHL)
+FixStyle(npt/massive,FixMassiveNPT)
 
 #else
 
-#ifndef LMP_FIX_NVT_NHL_H
-#define LMP_FIX_NVT_NHL_H
+#ifndef LMP_FIX_MASSIVE_NPT_H
+#define LMP_FIX_MASIIVE_NPT_H
 
-#include "fix_nhl.h"
+#include "fix_massive_nh.h"
 
 namespace LAMMPS_NS {
 
-class FixNVT_NHL : public FixNHL {
+class FixMassiveNPT : public FixMassiveNH {
  public:
-  FixNVT_NHL(class LAMMPS *, int, char **);
-  ~FixNVT_NHL() {}
+  FixMassiveNPT(class LAMMPS *, int, char **);
+  ~FixMassiveNPT() {}
 };
 
 }
@@ -37,11 +37,11 @@ class FixNVT_NHL : public FixNHL {
 
 /* ERROR/WARNING messages:
 
-E: Temperature control must be used with fix nvt
+E: Temperature control must be used with fix npt
 
 Self-explanatory.
 
-E: Pressure control can not be used with fix nvt
+E: Pressure control must be used with fix npt
 
 Self-explanatory.
 

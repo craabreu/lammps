@@ -12,11 +12,12 @@
 ------------------------------------------------------------------------- */
 
 /* ----------------------------------------------------------------------
+   Massive Thermostating for NVT and NPT simulations
    Contributing author: Charlles Abreu (UFRJ)
    Adapted from FixNH (authors: Mark Stevens and Aidan Thompson - SNL)
 ------------------------------------------------------------------------- */
 
-#include "fix_nhl.h"
+#include "fix_massive_nh.h"
 #include <cstring>
 #include <cmath>
 #include "atom.h"
@@ -45,14 +46,14 @@ enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
 /* ----------------------------------------------------------------------
-   NVT,NPT integrators for Nose-Hoover-Langevin equations of motion
+   NVT,NPT integrators for massive thermostatting equations of motion
  ---------------------------------------------------------------------- */
 
-FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
+FixMassiveNH::FixMassiveNH(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(NULL), id_dilate(NULL), irregular(NULL), id_temp(NULL), id_press(NULL)
 {
-  if (narg < 4) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+  if (narg < 4) error->all(FLERR,"Illegal fix <ensemble>/massive command");
 
   restart_global = 1;
   dynamic_group_allow = 1;
@@ -110,7 +111,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   while (iarg < narg) {
     if (strcmp(arg[iarg],"temp") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       tstat_flag = 1;
       t_start = force->numeric(FLERR,arg[iarg+1]);
       t_target = t_start;
@@ -118,11 +119,11 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       t_period = force->numeric(FLERR,arg[iarg+3]);
       if (t_start <= 0.0 || t_stop <= 0.0)
         error->all(FLERR,
-                   "Target temperature for fix <ensemble>/nhl cannot be 0.0");
+                   "Target temperature for fix <ensemble>/massive cannot be 0.0");
       iarg += 4;
 
     } else if (strcmp(arg[iarg],"iso") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       pcouple = XYZ;
       p_start[0] = p_start[1] = p_start[2] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[0] = p_stop[1] = p_stop[2] = force->numeric(FLERR,arg[iarg+2]);
@@ -135,7 +136,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 4;
     } else if (strcmp(arg[iarg],"aniso") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       pcouple = NONE;
       p_start[0] = p_start[1] = p_start[2] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[0] = p_stop[1] = p_stop[2] = force->numeric(FLERR,arg[iarg+2]);
@@ -148,7 +149,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 4;
     } else if (strcmp(arg[iarg],"tri") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       pcouple = NONE;
       scalexy = scalexz = scaleyz = 0;
       p_start[0] = p_start[1] = p_start[2] = force->numeric(FLERR,arg[iarg+1]);
@@ -171,7 +172,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 4;
     } else if (strcmp(arg[iarg],"x") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[0] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[0] = force->numeric(FLERR,arg[iarg+2]);
       p_period[0] = force->numeric(FLERR,arg[iarg+3]);
@@ -179,7 +180,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       deviatoric_flag = 1;
       iarg += 4;
     } else if (strcmp(arg[iarg],"y") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[1] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[1] = force->numeric(FLERR,arg[iarg+2]);
       p_period[1] = force->numeric(FLERR,arg[iarg+3]);
@@ -187,7 +188,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       deviatoric_flag = 1;
       iarg += 4;
     } else if (strcmp(arg[iarg],"z") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[2] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[2] = force->numeric(FLERR,arg[iarg+2]);
       p_period[2] = force->numeric(FLERR,arg[iarg+3]);
@@ -195,10 +196,10 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       deviatoric_flag = 1;
       iarg += 4;
       if (dimension == 2)
-        error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+        error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
 
     } else if (strcmp(arg[iarg],"yz") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[3] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[3] = force->numeric(FLERR,arg[iarg+2]);
       p_period[3] = force->numeric(FLERR,arg[iarg+3]);
@@ -207,9 +208,9 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       scaleyz = 0;
       iarg += 4;
       if (dimension == 2)
-        error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+        error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
     } else if (strcmp(arg[iarg],"xz") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[4] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[4] = force->numeric(FLERR,arg[iarg+2]);
       p_period[4] = force->numeric(FLERR,arg[iarg+3]);
@@ -218,9 +219,9 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       scalexz = 0;
       iarg += 4;
       if (dimension == 2)
-        error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+        error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
     } else if (strcmp(arg[iarg],"xy") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       p_start[5] = force->numeric(FLERR,arg[iarg+1]);
       p_stop[5] = force->numeric(FLERR,arg[iarg+2]);
       p_period[5] = force->numeric(FLERR,arg[iarg+3]);
@@ -230,17 +231,17 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       iarg += 4;
 
     } else if (strcmp(arg[iarg],"couple") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"xyz") == 0) pcouple = XYZ;
       else if (strcmp(arg[iarg+1],"xy") == 0) pcouple = XY;
       else if (strcmp(arg[iarg+1],"yz") == 0) pcouple = YZ;
       else if (strcmp(arg[iarg+1],"xz") == 0) pcouple = XZ;
       else if (strcmp(arg[iarg+1],"none") == 0) pcouple = NONE;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
 
     } else if (strcmp(arg[iarg],"dilate") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"all") == 0) allremap = 1;
       else {
         allremap = 0;
@@ -250,59 +251,59 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
         strcpy(id_dilate,arg[iarg+1]);
         int idilate = group->find(id_dilate);
         if (idilate == -1)
-          error->all(FLERR,"Fix <ensemble>/nhl dilate group ID does not exist");
+          error->all(FLERR,"Fix <ensemble>/massive dilate group ID does not exist");
       }
       iarg += 2;
 
     } else if (strcmp(arg[iarg],"tloop") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       nc_tchain = force->inumeric(FLERR,arg[iarg+1]);
-      if (nc_tchain < 0) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (nc_tchain < 0) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"ploop") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       nc_pchain = force->inumeric(FLERR,arg[iarg+1]);
-      if (nc_pchain < 0) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (nc_pchain < 0) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"nreset") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       nreset_h0 = force->inumeric(FLERR,arg[iarg+1]);
-      if (nreset_h0 < 0) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (nreset_h0 < 0) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"scalexy") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"yes") == 0) scalexy = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scalexy = 0;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"scalexz") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"yes") == 0) scalexz = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scalexz = 0;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"scaleyz") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"yes") == 0) scaleyz = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scaleyz = 0;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"flip") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"yes") == 0) flipflag = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) flipflag = 0;
-      else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"update") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       if (strcmp(arg[iarg+1],"dipole") == 0) dipole_flag = 1;
       else if (strcmp(arg[iarg+1],"dipole/dlm") == 0) {
         dipole_flag = 1;
         dlm_flag = 1;
-      } else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      } else error->all(FLERR,"Illegal fix <ensemble>/massive command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"fixedpoint") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+      if (iarg+4 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       fixedpoint[0] = force->numeric(FLERR,arg[iarg+1]);
       fixedpoint[1] = force->numeric(FLERR,arg[iarg+2]);
       fixedpoint[2] = force->numeric(FLERR,arg[iarg+3]);
@@ -322,98 +323,98 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
     } else if (strcmp(arg[iarg],"ext") == 0) {
       iarg += 2;
 
-    } else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
+    } else error->all(FLERR,"Illegal fix <ensemble>/massive command");
   }
 
   if (!tstat_flag)
-    error->all(FLERR,"Temperature control must be used with fix <ensemble>/nhl");
+    error->all(FLERR,"Temperature control must be used with fix <ensemble>/massive");
 
   // error checks
 
   if (dimension == 2 && (p_flag[2] || p_flag[3] || p_flag[4]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
   if (dimension == 2 && (pcouple == YZ || pcouple == XZ))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
   if (dimension == 2 && (scalexz == 1 || scaleyz == 1 ))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command for a 2d simulation");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command for a 2d simulation");
 
   if (pcouple == XYZ && (p_flag[0] == 0 || p_flag[1] == 0))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command pressure settings");
   if (pcouple == XYZ && dimension == 3 && p_flag[2] == 0)
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command pressure settings");
   if (pcouple == XY && (p_flag[0] == 0 || p_flag[1] == 0))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command pressure settings");
   if (pcouple == YZ && (p_flag[1] == 0 || p_flag[2] == 0))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command pressure settings");
   if (pcouple == XZ && (p_flag[0] == 0 || p_flag[2] == 0))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl command pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive command pressure settings");
 
   // require periodicity in tensile dimension
 
   if (p_flag[0] && domain->xperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl on a non-periodic dimension");
+    error->all(FLERR,"Cannot use fix <ensemble>/massive on a non-periodic dimension");
   if (p_flag[1] && domain->yperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl on a non-periodic dimension");
+    error->all(FLERR,"Cannot use fix <ensemble>/massive on a non-periodic dimension");
   if (p_flag[2] && domain->zperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl on a non-periodic dimension");
+    error->all(FLERR,"Cannot use fix <ensemble>/massive on a non-periodic dimension");
 
   // require periodicity in 2nd dim of off-diagonal tilt component
 
   if (p_flag[3] && domain->zperiodic == 0)
     error->all(FLERR,
-               "Cannot use fix <ensemble>/nhl on a 2nd non-periodic dimension");
+               "Cannot use fix <ensemble>/massive on a 2nd non-periodic dimension");
   if (p_flag[4] && domain->zperiodic == 0)
     error->all(FLERR,
-               "Cannot use fix <ensemble>/nhl on a 2nd non-periodic dimension");
+               "Cannot use fix <ensemble>/massive on a 2nd non-periodic dimension");
   if (p_flag[5] && domain->yperiodic == 0)
     error->all(FLERR,
-               "Cannot use fix <ensemble>/nhl on a 2nd non-periodic dimension");
+               "Cannot use fix <ensemble>/massive on a 2nd non-periodic dimension");
 
   if (scaleyz == 1 && domain->zperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive "
                "with yz scaling when z is non-periodic dimension");
   if (scalexz == 1 && domain->zperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive "
                "with xz scaling when z is non-periodic dimension");
   if (scalexy == 1 && domain->yperiodic == 0)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive "
                "with xy scaling when y is non-periodic dimension");
 
   if (p_flag[3] && scaleyz == 1)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl with "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive with "
                "both yz dynamics and yz scaling");
   if (p_flag[4] && scalexz == 1)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl with "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive with "
                "both xz dynamics and xz scaling");
   if (p_flag[5] && scalexy == 1)
-    error->all(FLERR,"Cannot use fix <ensemble>/nhl with "
+    error->all(FLERR,"Cannot use fix <ensemble>/massive with "
                "both xy dynamics and xy scaling");
 
   if (!domain->triclinic && (p_flag[3] || p_flag[4] || p_flag[5]))
     error->all(FLERR,"Can not specify Pxy/Pxz/Pyz in "
-               "fix <ensemble>/nhl with non-triclinic box");
+               "fix <ensemble>/massive with non-triclinic box");
 
   if (pcouple == XYZ && dimension == 3 &&
       (p_start[0] != p_start[1] || p_start[0] != p_start[2] ||
        p_stop[0] != p_stop[1] || p_stop[0] != p_stop[2] ||
        p_period[0] != p_period[1] || p_period[0] != p_period[2]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive pressure settings");
   if (pcouple == XYZ && dimension == 2 &&
       (p_start[0] != p_start[1] || p_stop[0] != p_stop[1] ||
        p_period[0] != p_period[1]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive pressure settings");
   if (pcouple == XY &&
       (p_start[0] != p_start[1] || p_stop[0] != p_stop[1] ||
        p_period[0] != p_period[1]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive pressure settings");
   if (pcouple == YZ &&
       (p_start[1] != p_start[2] || p_stop[1] != p_stop[2] ||
        p_period[1] != p_period[2]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive pressure settings");
   if (pcouple == XZ &&
       (p_start[0] != p_start[2] || p_stop[0] != p_stop[2] ||
        p_period[0] != p_period[2]))
-    error->all(FLERR,"Invalid fix <ensemble>/nhl pressure settings");
+    error->all(FLERR,"Invalid fix <ensemble>/massive pressure settings");
 
   if (dipole_flag) {
     if (!atom->sphere_flag)
@@ -429,7 +430,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       (p_flag[3] && p_period[3] <= 0.0) ||
       (p_flag[4] && p_period[4] <= 0.0) ||
       (p_flag[5] && p_period[5] <= 0.0))
-    error->all(FLERR,"Fix <ensemble>/nhl damping parameters must be > 0.0");
+    error->all(FLERR,"Fix <ensemble>/massive damping parameters must be > 0.0");
 
   // set pstat_flag and box change and restart_pbc variables
 
@@ -509,7 +510,7 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-FixNHL::~FixNHL()
+FixMassiveNH::~FixMassiveNH()
 {
   if (copymode) return;
 
@@ -534,7 +535,7 @@ FixNHL::~FixNHL()
 
 /* ---------------------------------------------------------------------- */
 
-int FixNHL::setmask()
+int FixMassiveNH::setmask()
 {
   int mask = 0;
   mask |= INITIAL_INTEGRATE;
@@ -548,14 +549,14 @@ int FixNHL::setmask()
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::init()
+void FixMassiveNH::init()
 {
   // recheck that dilate group has not been deleted
 
   if (allremap == 0) {
     int idilate = group->find(id_dilate);
     if (idilate == -1)
-      error->all(FLERR,"Fix <ensemble>/nhl dilate group ID does not exist");
+      error->all(FLERR,"Fix <ensemble>/massive dilate group ID does not exist");
     dilate_group_bit = group->bitmask[idilate];
   }
 
@@ -662,7 +663,7 @@ void FixNHL::init()
    compute T,P before integrator starts
 ------------------------------------------------------------------------- */
 
-void FixNHL::setup(int /*vflag*/)
+void FixMassiveNH::setup(int /*vflag*/)
 {
   // tdof needed by compute_temp_target()
 
@@ -731,7 +732,7 @@ void FixNHL::setup(int /*vflag*/)
    1st half of Verlet update
 ------------------------------------------------------------------------- */
 
-void FixNHL::initial_integrate(int /*vflag*/)
+void FixMassiveNH::initial_integrate(int /*vflag*/)
 {
   compute_temp_target();
 
@@ -781,7 +782,7 @@ void FixNHL::initial_integrate(int /*vflag*/)
    2nd half of Verlet update
 ------------------------------------------------------------------------- */
 
-void FixNHL::final_integrate()
+void FixMassiveNH::final_integrate()
 {
   nve_v(dthalf);
 
@@ -813,7 +814,7 @@ void FixNHL::final_integrate()
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
+void FixMassiveNH::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
@@ -876,7 +877,7 @@ void FixNHL::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::final_integrate_respa(int ilevel, int /*iloop*/)
+void FixMassiveNH::final_integrate_respa(int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
@@ -893,7 +894,7 @@ void FixNHL::final_integrate_respa(int ilevel, int /*iloop*/)
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::couple()
+void FixMassiveNH::couple()
 {
   double *tensor = pressure->vector;
 
@@ -941,7 +942,7 @@ void FixNHL::couple()
    if rigid bodies exist, scale rigid body centers-of-mass
 ------------------------------------------------------------------------- */
 
-void FixNHL::remap(double dt)
+void FixMassiveNH::remap(double dt)
 {
   int i;
   double oldlo,oldhi;
@@ -1117,7 +1118,7 @@ void FixNHL::remap(double dt)
    pack entire state of Fix into one write
 ------------------------------------------------------------------------- */
 
-void FixNHL::write_restart(FILE *fp)
+void FixMassiveNH::write_restart(FILE *fp)
 {
   int nsize = size_restart_global();
 
@@ -1139,7 +1140,7 @@ void FixNHL::write_restart(FILE *fp)
     calculate the number of data to be packed
 ------------------------------------------------------------------------- */
 
-int FixNHL::size_restart_global()
+int FixMassiveNH::size_restart_global()
 {
   int nsize = 1;
   nsize += 1 + 3*atom->nlocal;
@@ -1154,7 +1155,7 @@ int FixNHL::size_restart_global()
    pack restart data
 ------------------------------------------------------------------------- */
 
-int FixNHL::pack_restart_data(double *list)
+int FixMassiveNH::pack_restart_data(double *list)
 {
   int n = 0;
 
@@ -1200,7 +1201,7 @@ int FixNHL::pack_restart_data(double *list)
    use state info from restart file to restart the Fix
 ------------------------------------------------------------------------- */
 
-void FixNHL::restart(char *buf)
+void FixMassiveNH::restart(char *buf)
 {
   int n = 0;
   double *list = (double *) buf;
@@ -1244,7 +1245,7 @@ void FixNHL::restart(char *buf)
 
 /* ---------------------------------------------------------------------- */
 
-int FixNHL::modify_param(int narg, char **arg)
+int FixMassiveNH::modify_param(int narg, char **arg)
 {
   if (strcmp(arg[0],"temp") == 0) {
     if (narg < 2) error->all(FLERR,"Illegal fix_modify command");
@@ -1305,14 +1306,14 @@ int FixNHL::modify_param(int narg, char **arg)
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::reset_target(double t_new)
+void FixMassiveNH::reset_target(double t_new)
 {
   t_target = t_start = t_stop = t_new;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixNHL::reset_dt()
+void FixMassiveNH::reset_dt()
 {
   dtfull = update->dt;
   dthalf = 0.5 * update->dt;
@@ -1322,7 +1323,7 @@ void FixNHL::reset_dt()
    extract thermostat properties
 ------------------------------------------------------------------------- */
 
-void *FixNHL::extract(const char *str, int &dim)
+void *FixMassiveNH::extract(const char *str, int &dim)
 {
   dim=0;
   if (strcmp(str,"t_target") == 0) {
@@ -1349,7 +1350,7 @@ void *FixNHL::extract(const char *str, int &dim)
    perform update of thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhl_temp_integrate(double dt)
+void FixMassiveNH::nhl_temp_integrate(double dt)
 {
   double eta_dotdot;
   double kT = boltz * t_target;
@@ -1387,7 +1388,7 @@ void FixNHL::nhl_temp_integrate(double dt)
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
-void FixNHL::nhl_press_integrate(double dt)
+void FixMassiveNH::nhl_press_integrate(double dt)
 {
   int i;
   double etap_dotdot;
@@ -1423,7 +1424,7 @@ void FixNHL::nhl_press_integrate(double dt)
    perform barostat scaling of velocities
 -----------------------------------------------------------------------*/
 
-void FixNHL::nh_v_press(double dt)
+void FixMassiveNH::nh_v_press(double dt)
 {
   double dthalf = 0.5*dt;
   double factor[3];
@@ -1456,7 +1457,7 @@ void FixNHL::nh_v_press(double dt)
    perform update of velocities
 -----------------------------------------------------------------------*/
 
-void FixNHL::nve_v(double dt)
+void FixMassiveNH::nve_v(double dt)
 {
   double dtf = dt * force->ftm2v;
   double dtfm;
@@ -1494,7 +1495,7 @@ void FixNHL::nve_v(double dt)
    perform update of positions
 -----------------------------------------------------------------------*/
 
-void FixNHL::nve_x(double dt)
+void FixMassiveNH::nve_x(double dt)
 {
   double **x = atom->x;
   double **v = atom->v;
@@ -1518,7 +1519,7 @@ void FixNHL::nve_x(double dt)
    needed whenever p_target or h0_inv changes
 -----------------------------------------------------------------------*/
 
-void FixNHL::compute_sigma()
+void FixMassiveNH::compute_sigma()
 {
   // if nreset_h0 > 0, reset vol0 and h0_inv
   // every nreset_h0 timesteps
@@ -1576,7 +1577,7 @@ void FixNHL::compute_sigma()
    compute strain energy
 -----------------------------------------------------------------------*/
 
-double FixNHL::compute_strain_energy()
+double FixMassiveNH::compute_strain_energy()
 {
   // compute strain energy = 0.5*Tr(sigma*h*h^t) in energy units
 
@@ -1604,7 +1605,7 @@ double FixNHL::compute_strain_energy()
    compute deviatoric barostat force = h*sigma*h^t
 -----------------------------------------------------------------------*/
 
-void FixNHL::compute_deviatoric()
+void FixMassiveNH::compute_deviatoric()
 {
   // generate upper-triangular part of h*sigma*h^t
   // units of fdev are are PV, e.g. atm*A^3
@@ -1640,7 +1641,7 @@ void FixNHL::compute_deviatoric()
    compute target temperature and kinetic energy
 -----------------------------------------------------------------------*/
 
-void FixNHL::compute_temp_target()
+void FixMassiveNH::compute_temp_target()
 {
   double delta = update->ntimestep - update->beginstep;
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
@@ -1652,7 +1653,7 @@ void FixNHL::compute_temp_target()
    compute hydrostatic target pressure
 -----------------------------------------------------------------------*/
 
-void FixNHL::compute_press_target()
+void FixMassiveNH::compute_press_target()
 {
   double delta = update->ntimestep - update->beginstep;
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
@@ -1678,7 +1679,7 @@ void FixNHL::compute_press_target()
    update omega_dot
 -----------------------------------------------------------------------*/
 
-void FixNHL::nh_omega_dot(double dt)
+void FixMassiveNH::nh_omega_dot(double dt)
 {
   double f_omega,volume;
 
@@ -1741,7 +1742,7 @@ void FixNHL::nh_omega_dot(double dt)
     image flags to new values, making eqs in doc of Domain:image_flip incorrect
 ------------------------------------------------------------------------- */
 
-void FixNHL::pre_exchange()
+void FixMassiveNH::pre_exchange()
 {
   double xprd = domain->xprd;
   double yprd = domain->yprd;
@@ -1808,7 +1809,7 @@ void FixNHL::pre_exchange()
    memory usage of Irregular
 ------------------------------------------------------------------------- */
 
-double FixNHL::memory_usage()
+double FixMassiveNH::memory_usage()
 {
   double bytes = 0.0;
   if (irregular) bytes += irregular->memory_usage();
@@ -1820,7 +1821,7 @@ double FixNHL::memory_usage()
    allocate atom-based arrays
 ------------------------------------------------------------------------- */
 
-void FixNHL::grow_arrays(int nmax)
+void FixMassiveNH::grow_arrays(int nmax)
 {
   memory->grow(eta_dot,nmax,3,"fix_nhl:eta_dot");
 }
@@ -1829,7 +1830,7 @@ void FixNHL::grow_arrays(int nmax)
    copy values within local atom-based array
 ------------------------------------------------------------------------- */
 
-void FixNHL::copy_arrays(int i, int j, int /*delflag*/)
+void FixMassiveNH::copy_arrays(int i, int j, int /*delflag*/)
 {
   eta_dot[j][0] = eta_dot[i][0];
   eta_dot[j][1] = eta_dot[i][1];
@@ -1840,7 +1841,7 @@ void FixNHL::copy_arrays(int i, int j, int /*delflag*/)
    pack values in local atom-based array for exchange with another proc
 ------------------------------------------------------------------------- */
 
-int FixNHL::pack_exchange(int i, double *buf)
+int FixMassiveNH::pack_exchange(int i, double *buf)
 {
   int n = 0;
   buf[n++] = eta_dot[i][0];
@@ -1853,7 +1854,7 @@ int FixNHL::pack_exchange(int i, double *buf)
    unpack values in local atom-based array from exchange with another proc
 ------------------------------------------------------------------------- */
 
-int FixNHL::unpack_exchange(int nlocal, double *buf)
+int FixMassiveNH::unpack_exchange(int nlocal, double *buf)
 {
   int n = 0;
   eta_dot[nlocal][0] = buf[n++];

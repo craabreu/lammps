@@ -4,7 +4,7 @@ read_restart restart.equil
 variable dt equal 0.002
 timestep ${dt}
 #fix		1 all npt temp 1 1 $(100*dt) iso 1 1 $(1000*dt) tchain 1 pchain 1
-fix		1 all npt/nhl temp 1 1 $(100*dt) iso 1 1 $(1000*dt)
+fix		1 all npt/massive temp 1 1 $(100*dt) iso 1 1 $(1000*dt)
 
 #run_style	    respa 2 4 inner 1 1.5 2.0 outer 2
 
