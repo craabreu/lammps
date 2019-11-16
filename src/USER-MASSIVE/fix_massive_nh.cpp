@@ -17,6 +17,20 @@
    Adapted from FixNH (authors: Mark Stevens and Aidan Thompson - SNL)
 ------------------------------------------------------------------------- */
 
+/* ----------------------------------------------------------------------
+TO DO LIST:
+-------------------------------------------------------------------------
+1. Include keyword "langevin seed damp" to enable Nose-Hoover-Langevin
+   thermostatting, where damp = 1/gamma (time units)
+2. Include keyword "molecular yes/no" to enable barostatting with molecular
+   rather than atomic pressure.
+3. Implement alternative barostat with fixed temperature and include keyword
+   "mkt yes/no" (default=no) to enable original MTK barostat.
+4. Implement isokinetic constraints and include keyword "speedlim" with
+   options "none/isok/geneq", where isok stands for isokinetic and geneq
+   stands for generalized equipartition.
+------------------------------------------------------------------------- */
+
 #include "fix_massive_nh.h"
 #include <cstring>
 #include <cmath>
