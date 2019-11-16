@@ -62,7 +62,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   // default values
 
   pcouple = NONE;
-  drag = 0.0;
   allremap = 1;
   id_dilate = NULL;
   nc_tchain = nc_pchain = 1;
@@ -242,11 +241,6 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
       else error->all(FLERR,"Illegal fix <ensemble>/nhl command");
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"drag") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      drag = force->numeric(FLERR,arg[iarg+1]);
-      if (drag < 0.0) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"dilate") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/nhl command");
       if (strcmp(arg[iarg+1],"all") == 0) allremap = 1;
@@ -491,13 +485,10 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   if (tstat_flag) {
     eta_dot = NULL;
-    printf("%d\n",__LINE__);
     grow_arrays(atom->nmax);
-    printf("%d\n",__LINE__);
     atom->add_callback(0);
     for (int i = 0; i < atom->nmax; i++)
       eta_dot[i][0] = eta_dot[i][1] = eta_dot[i][2] = 0.0;
-      printf("%d\n",__LINE__);
   }
 
   if (pstat_flag) {
@@ -618,11 +609,7 @@ void FixNHL::init()
       p_freq_max = MAX(p_freq_max,p_freq[4]);
       p_freq_max = MAX(p_freq_max,p_freq[5]);
     }
-    pdrag_factor = 1.0 - (update->dt * p_freq_max * drag / nc_pchain);
   }
-
-  if (tstat_flag)
-    tdrag_factor = 1.0 - (update->dt * t_freq * drag / nc_tchain);
 
   // tally the number of dimensions that are barostatted
   // set initial volume and reference cell, if not already done
@@ -1335,12 +1322,6 @@ void FixNHL::reset_dt()
 {
   dtfull = update->dt;
   dthalf = 0.5 * update->dt;
-
-  if (pstat_flag)
-    pdrag_factor = 1.0 - (update->dt * p_freq_max * drag / nc_pchain);
-
-  if (tstat_flag)
-    tdrag_factor = 1.0 - (update->dt * t_freq * drag / nc_tchain);
 }
 
 /* ----------------------------------------------------------------------
@@ -1371,7 +1352,7 @@ void *FixNHL::extract(const char *str, int &dim)
 }
 
 /* ----------------------------------------------------------------------
-   perform half-step update of chain thermostat variables
+   perform update of thermostat variables
 ------------------------------------------------------------------------- */
 
 void FixNHL::nhl_temp_integrate(double dt)
@@ -1399,7 +1380,6 @@ void FixNHL::nhl_temp_integrate(double dt)
         eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
         for (int iloop = 0; iloop < nc_tchain; iloop++) {
           eta_dot[i][j] += eta_dotdot * dthalf_small;
-          eta_dot[i][j] *= tdrag_factor;
           factor_eta = exp(-dt_small*eta_dot[i][j]);
           v[i][j] *= factor_eta;
           eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
@@ -1410,7 +1390,7 @@ void FixNHL::nhl_temp_integrate(double dt)
 }
 
 /* ----------------------------------------------------------------------
-   perform half-step update of chain thermostat variables for barostat
+   perform update of thermostat variables for barostat
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
@@ -1465,7 +1445,6 @@ void FixNHL::nhl_press_integrate(double dt)
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
     etap_dot += etap_dotdot * dthalf_small;
-    etap_dot *= pdrag_factor;
 
     factor_etap = exp(-dt_small*etap_dot);
     for (i = 0; i < 3; i++)
@@ -1544,7 +1523,7 @@ void FixNHL::nh_v_press(double dt)
 }
 
 /* ----------------------------------------------------------------------
-   perform half-step update of velocities
+   perform update of velocities
 -----------------------------------------------------------------------*/
 
 void FixNHL::nve_v(double dt)
@@ -1831,7 +1810,6 @@ void FixNHL::nh_omega_dot(double dt)
         (omega_mass[i] * nktv2p) + mtk_term1 / omega_mass[i];
       if (deviatoric_flag) f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
       omega_dot[i] += f_omega*dt;
-      omega_dot[i] *= pdrag_factor;
     }
 
   mtk_term2 = 0.0;
@@ -1849,7 +1827,6 @@ void FixNHL::nh_omega_dot(double dt)
         if (deviatoric_flag)
           f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
         omega_dot[i] += f_omega*dt;
-        omega_dot[i] *= pdrag_factor;
       }
     }
   }
