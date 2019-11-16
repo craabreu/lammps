@@ -503,8 +503,10 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   nrigid = 0;
   rfix = NULL;
 
-  if (pre_exchange_flag) irregular = new Irregular(lmp);
-  else irregular = NULL;
+  if (pre_exchange_flag)
+    irregular = new Irregular(lmp);
+  else
+    irregular = NULL;
 
   // initialize vol0,t0 to zero to signal uninitialized
   // values then assigned in init(), if necessary
@@ -587,7 +589,7 @@ void FixNHL::init()
   if (pstat_flag) {
     icompute = modify->find_compute(id_press);
     if (icompute < 0)
-      error->all(FLERR,"Pressure ID for fix npt/nph does not exist");
+      error->all(FLERR,"Pressure ID for fix npt does not exist");
     pressure = modify->compute[icompute];
   }
 
@@ -645,11 +647,22 @@ void FixNHL::init()
   for (int i = 0; i < modify->nfix; i++)
     if (modify->fix[i]->rigid_flag) nrigid++;
   if (nrigid) {
+    error->all(FLERR,"Pressure ID for fix npt/nph does not exist");
     rfix = new int[nrigid];
     nrigid = 0;
     for (int i = 0; i < modify->nfix; i++)
       if (modify->fix[i]->rigid_flag) rfix[nrigid++] = i;
   }
+
+  // Rigid bodies and constraints can be considered in future versions
+  // For the time being, just throw an error message
+
+  if (nrigid)
+    error->all(FLERR,"No support for rigid bodies in fix <ensemble>/nph");
+  for (int i = 0; i < modify->nfix; i++)
+    if (strcmp(modify->fix[i]->style,"shake") == 0 ||
+        strcmp(modify->fix[i]->style,"rattle") == 0)
+      error->all(FLERR,"No support for constraints in fix <ensemble>/nph");
 }
 
 /* ----------------------------------------------------------------------
@@ -792,7 +805,8 @@ void FixNHL::final_integrate()
   // compute appropriately coupled elements of mvv_current
 
   if (pstat_flag) {
-    if (pstyle == ISO) pressure->compute_scalar();
+    if (pstyle == ISO)
+      pressure->compute_scalar();
     else {
       temperature->compute_vector();
       pressure->compute_vector();
@@ -879,8 +893,10 @@ void FixNHL::final_integrate_respa(int ilevel, int /*iloop*/)
   // outermost level - update eta_dot and omega_dot, apply via final_integrate
   // all other levels - NVE update of v
 
-  if (ilevel == nlevels_respa-1) final_integrate();
-  else nve_v(dthalf);
+  if (ilevel == nlevels_respa-1)
+    final_integrate();
+  else
+    nve_v(dthalf);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1412,7 +1428,7 @@ void FixNHL::nhl_press_integrate(double dt)
 }
 
 /* ----------------------------------------------------------------------
-   perform half-step barostat scaling of velocities
+   perform barostat scaling of velocities
 -----------------------------------------------------------------------*/
 
 void FixNHL::nh_v_press(double dt)
@@ -1483,7 +1499,7 @@ void FixNHL::nve_v(double dt)
 }
 
 /* ----------------------------------------------------------------------
-   perform full-step update of positions
+   perform update of positions
 -----------------------------------------------------------------------*/
 
 void FixNHL::nve_x(double dt)
@@ -1667,7 +1683,7 @@ void FixNHL::compute_press_target()
 }
 
 /* ----------------------------------------------------------------------
-   update omega_dot, omega
+   update omega_dot
 -----------------------------------------------------------------------*/
 
 void FixNHL::nh_omega_dot(double dt)
