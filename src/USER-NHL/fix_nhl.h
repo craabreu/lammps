@@ -38,6 +38,10 @@ class FixNHL : public Fix {
   void reset_dt();
   virtual void *extract(const char*,int &);
   double memory_usage();
+  void grow_arrays(int);
+  void copy_arrays(int, int, int);
+  int pack_exchange(int, double *);
+  int unpack_exchange(int, double *);
 
  protected:
   int dimension,which;
@@ -77,12 +81,10 @@ class FixNHL : public Fix {
   int tcomputeflag,pcomputeflag;   // 1 = compute was created by fix
                                    // 0 = created externally
 
-  double eta_dot;                  // thermostat for particles
-  double eta_dotdot;
+  double **eta_dot;                // thermostat for particles
   double eta_mass;
 
   double etap_dot;                 // chain thermostat for barostat
-  double etap_dotdot;
   double etap_mass;
   int mpchain;                     // length of chain
 

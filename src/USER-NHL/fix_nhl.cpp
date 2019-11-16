@@ -489,15 +489,23 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
 
   // Nose/Hoover temp and pressure init
 
-  if (tstat_flag)
-    eta_dot = eta_dotdot = 0.0;
+  if (tstat_flag) {
+    eta_dot = NULL;
+    printf("%d\n",__LINE__);
+    grow_arrays(atom->nmax);
+    printf("%d\n",__LINE__);
+    atom->add_callback(0);
+    for (int i = 0; i < atom->nmax; i++)
+      eta_dot[i][0] = eta_dot[i][1] = eta_dot[i][2] = 0.0;
+      printf("%d\n",__LINE__);
+  }
 
   if (pstat_flag) {
     omega_dot[0] = omega_dot[1] = omega_dot[2] = 0.0;
     omega_mass[0] = omega_mass[1] = omega_mass[2] = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
-    etap_dot = etap_dotdot = 0.0;
+    etap_dot = 0.0;
   }
 
   nrigid = 0;
@@ -522,6 +530,11 @@ FixNHL::~FixNHL()
   delete [] rfix;
 
   delete irregular;
+
+  if (tstat_flag) {
+    memory->destroy(eta_dot);
+    atom->delete_callback(id,0);
+  }
 
   // delete temperature and pressure if fix created them
 
@@ -703,7 +716,7 @@ void FixNHL::setup(int /*vflag*/)
   // masses and initial forces on thermostat variables
 
   if (tstat_flag)
-    eta_mass = tdof * boltz * t_target / (t_freq*t_freq);
+    eta_mass = boltz * t_target / (t_freq*t_freq);
 
   // masses and initial forces on barostat variables
 
@@ -1150,7 +1163,7 @@ void FixNHL::write_restart(FILE *fp)
 int FixNHL::size_restart_global()
 {
   int nsize = 2;
-  if (tstat_flag) nsize++;
+  if (tstat_flag) nsize += 1 + 3*atom->nlocal;
   if (pstat_flag) {
     nsize += 10;
     if (deviatoric_flag) nsize += 6;
@@ -1167,8 +1180,14 @@ int FixNHL::pack_restart_data(double *list)
   int n = 0;
 
   list[n++] = tstat_flag;
-  if (tstat_flag)
-    list[n++] = eta_dot;
+  if (tstat_flag) {
+    list[n++] = atom->nlocal;
+    for (int i = 0; i < atom->nlocal; i++) {
+      list[n++] = eta_dot[i][0];
+      list[n++] = eta_dot[i][1];
+      list[n++] = eta_dot[i][2];
+    }
+  }
 
   list[n++] = pstat_flag;
   if (pstat_flag) {
@@ -1206,10 +1225,15 @@ void FixNHL::restart(char *buf)
   double *list = (double *) buf;
   int flag = static_cast<int> (list[n++]);
   if (flag) {
+    int nlocal = static_cast<int> (list[n++]);
     if (tstat_flag)
-      eta_dot = list[n++];
+      for (int i; i < nlocal; i++) {
+        eta_dot[i][0] = list[n++];
+        eta_dot[i][1] = list[n++];
+        eta_dot[i][2] = list[n++];
+      }
     else
-      n++;
+      n += 3*nlocal;
   }
   flag = static_cast<int> (list[n++]);
   if (flag) {
@@ -1352,39 +1376,37 @@ void *FixNHL::extract(const char *str, int &dim)
 
 void FixNHL::nhl_temp_integrate(double dt)
 {
-  double kecurrent = tdof * boltz * t_current;
+  double eta_dotdot;
+  double kT = boltz * t_target;
+
+  double **v = atom->v;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  double *rmass = atom->rmass;
+  double *tmass = atom->mass;
+  int *type = atom->type;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
   // Update masses, to preserve initial freq, if flag set
-
-  if (eta_mass_flag)
-    eta_mass = tdof * boltz * t_target / (t_freq*t_freq);
-
-  if (eta_mass > 0.0)
-    eta_dotdot = (kecurrent - ke_target)/eta_mass;
-  else eta_dotdot = 0.0;
+  if (eta_mass_flag) eta_mass = kT / (t_freq*t_freq);
 
   double dt_small = dt/nc_tchain;
   double dthalf_small = 0.5*dt_small;
-  for (int iloop = 0; iloop < nc_tchain; iloop++) {
-
-    eta_dot += eta_dotdot * dthalf_small;
-    eta_dot *= tdrag_factor;
-
-    factor_eta = exp(-dt_small*eta_dot);
-    nh_v_temp();
-
-    // rescale temperature due to velocity scaling
-    // should not be necessary to explicitly recompute the temperature
-
-    t_current *= factor_eta*factor_eta;
-    kecurrent = tdof * boltz * t_current;
-
-    if (eta_mass > 0.0)
-      eta_dotdot = (kecurrent - ke_target)/eta_mass;
-    else eta_dotdot = 0.0;
-
-    eta_dot += eta_dotdot * dthalf_small;
-  }
+  for (int i = 0; i < atom->nlocal; i ++)
+    if (mask[i] & groupbit) {
+      double mass = rmass ? rmass[i] : tmass[type[i]];
+      for (int j = 0; j < 3; j++) {
+        eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
+        for (int iloop = 0; iloop < nc_tchain; iloop++) {
+          eta_dot[i][j] += eta_dotdot * dthalf_small;
+          eta_dot[i][j] *= tdrag_factor;
+          factor_eta = exp(-dt_small*eta_dot[i][j]);
+          v[i][j] *= factor_eta;
+          eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
+          eta_dot[i][j] += eta_dotdot * dthalf_small;
+        }
+      }
+    }
 }
 
 /* ----------------------------------------------------------------------
@@ -1395,7 +1417,7 @@ void FixNHL::nhl_temp_integrate(double dt)
 void FixNHL::nhl_press_integrate(double dt)
 {
   int i,pdof;
-  double factor_etap,kecurrent;
+  double factor_etap,kecurrent,etap_dotdot;
   double kt = boltz * t_target;
   double lkt_press;
 
@@ -1432,8 +1454,10 @@ void FixNHL::nhl_press_integrate(double dt)
       }
   }
 
-  if (pstyle == ISO) lkt_press = kt;
-  else lkt_press = pdof * kt;
+  if (pstyle == ISO)
+     lkt_press = kt;
+  else
+    lkt_press = pdof * kt;
   etap_dotdot = (kecurrent - lkt_press)/etap_mass;
 
   double dt_small = dt/nc_pchain;;
@@ -1918,5 +1942,59 @@ double FixNHL::memory_usage()
 {
   double bytes = 0.0;
   if (irregular) bytes += irregular->memory_usage();
+  if (tstat_flag) bytes += atom->nmax*2*sizeof(double);
   return bytes;
+}
+
+/* ----------------------------------------------------------------------
+   allocate atom-based arrays
+------------------------------------------------------------------------- */
+
+void FixNHL::grow_arrays(int nmax)
+{
+  if (tstat_flag)
+    memory->grow(eta_dot,nmax,3,"fix_nhl:eta_dot");
+}
+
+/* ----------------------------------------------------------------------
+   copy values within local atom-based array
+------------------------------------------------------------------------- */
+
+void FixNHL::copy_arrays(int i, int j, int /*delflag*/)
+{
+  if (tstat_flag) {
+    eta_dot[j][0] = eta_dot[i][0];
+    eta_dot[j][1] = eta_dot[i][1];
+    eta_dot[j][2] = eta_dot[i][2];
+  }
+}
+
+/* ----------------------------------------------------------------------
+   pack values in local atom-based array for exchange with another proc
+------------------------------------------------------------------------- */
+
+int FixNHL::pack_exchange(int i, double *buf)
+{
+  int n = 0;
+  if (tstat_flag) {
+    buf[n++] = eta_dot[i][0];
+    buf[n++] = eta_dot[i][1];
+    buf[n++] = eta_dot[i][2];
+  }
+  return n;
+}
+
+/* ----------------------------------------------------------------------
+   unpack values in local atom-based array from exchange with another proc
+------------------------------------------------------------------------- */
+
+int FixNHL::unpack_exchange(int nlocal, double *buf)
+{
+  int n = 0;
+  if (tstat_flag) {
+    eta_dot[nlocal][0] = buf[n++];
+    eta_dot[nlocal][1] = buf[n++];
+    eta_dot[nlocal][2] = buf[n++];
+  }
+  return n;
 }
