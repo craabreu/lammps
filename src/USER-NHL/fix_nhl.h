@@ -84,9 +84,8 @@ class FixNHL : public Fix {
   double **eta_dot;                // thermostat for particles
   double eta_mass;
 
-  double etap_dot;                 // chain thermostat for barostat
+  double etap_dot[6];              // chain thermostat for barostat
   double etap_mass;
-  int mpchain;                     // length of chain
 
   int mtk_flag;                    // 0 if using Hoover barostat
   int pdim;                        // number of barostatted dims
@@ -95,7 +94,6 @@ class FixNHL : public Fix {
   double p_hydro;                  // hydrostatic target pressure
 
   int nc_tchain,nc_pchain;
-  double factor_eta;
   double sigma[6];                 // scaled target stress
   double fdev[6];                  // deviatoric force on barostat
   int deviatoric_flag;             // 0 if target stress tensor is hydrostatic
@@ -127,7 +125,6 @@ class FixNHL : public Fix {
   virtual void nve_x(double);      // may be overwritten by child classes
   virtual void nve_v(double);
   virtual void nh_v_press(double);
-  virtual void nh_v_temp();
   virtual void compute_temp_target();
   virtual int size_restart_global();
 

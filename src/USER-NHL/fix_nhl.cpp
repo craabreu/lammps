@@ -494,9 +494,10 @@ FixNHL::FixNHL(LAMMPS *lmp, int narg, char **arg) :
   if (pstat_flag) {
     omega_dot[0] = omega_dot[1] = omega_dot[2] = 0.0;
     omega_mass[0] = omega_mass[1] = omega_mass[2] = 0.0;
+    etap_dot[0] = etap_dot[1] = etap_dot[2] = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
-    etap_dot = 0.0;
+    etap_dot[3] = etap_dot[4] = etap_dot[5] = 0.0;
   }
 
   nrigid = 0;
@@ -1152,7 +1153,7 @@ int FixNHL::size_restart_global()
   int nsize = 2;
   if (tstat_flag) nsize += 1 + 3*atom->nlocal;
   if (pstat_flag) {
-    nsize += 10;
+    nsize += 15;
     if (deviatoric_flag) nsize += 6;
   }
   return nsize;
@@ -1186,7 +1187,12 @@ int FixNHL::pack_restart_data(double *list)
     list[n++] = omega_dot[5];
     list[n++] = vol0;
     list[n++] = t0;
-    list[n++] = etap_dot;
+    list[n++] = etap_dot[0];
+    list[n++] = etap_dot[1];
+    list[n++] = etap_dot[2];
+    list[n++] = etap_dot[3];
+    list[n++] = etap_dot[4];
+    list[n++] = etap_dot[5];
 
     list[n++] = deviatoric_flag;
     if (deviatoric_flag) {
@@ -1232,10 +1238,16 @@ void FixNHL::restart(char *buf)
     omega_dot[5] = list[n++];
     vol0 = list[n++];
     t0 = list[n++];
-    if (pstat_flag)
-      etap_dot = list[n++];
+    if (pstat_flag) {
+      etap_dot[0] = list[n++];
+      etap_dot[1] = list[n++];
+      etap_dot[2] = list[n++];
+      etap_dot[3] = list[n++];
+      etap_dot[4] = list[n++];
+      etap_dot[5] = list[n++];
+    }
     else
-      n++;
+      n += 6;
     flag = static_cast<int> (list[n++]);
     if (flag) {
       h0_inv[0] = list[n++];
@@ -1380,8 +1392,7 @@ void FixNHL::nhl_temp_integrate(double dt)
         eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
         for (int iloop = 0; iloop < nc_tchain; iloop++) {
           eta_dot[i][j] += eta_dotdot * dthalf_small;
-          factor_eta = exp(-dt_small*eta_dot[i][j]);
-          v[i][j] *= factor_eta;
+          v[i][j] *= exp(-dt_small*eta_dot[i][j]);
           eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
           eta_dot[i][j] += eta_dotdot * dthalf_small;
         }
@@ -1396,78 +1407,34 @@ void FixNHL::nhl_temp_integrate(double dt)
 
 void FixNHL::nhl_press_integrate(double dt)
 {
-  int i,pdof;
-  double factor_etap,kecurrent,etap_dotdot;
+  int i;
+  double etap_dotdot;
   double kt = boltz * t_target;
-  double lkt_press;
+  int number = pstyle == TRICLINIC ? 6 : 3;
 
   // Update masses, to preserve initial freq, if flag set
-
   if (omega_mass_flag) {
     double nkt = (atom->natoms + 1) * kt;
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < number; i++)
       if (p_flag[i])
         omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
-
-    if (pstyle == TRICLINIC) {
-      for (int i = 3; i < 6; i++)
-        if (p_flag[i]) omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
-    }
   }
 
   if (etap_mass_flag)
-    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
-
-  kecurrent = 0.0;
-  pdof = 0;
-  for (i = 0; i < 3; i++)
-    if (p_flag[i]) {
-      kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
-      pdof++;
-    }
-
-  if (pstyle == TRICLINIC) {
-    for (i = 3; i < 6; i++)
-      if (p_flag[i]) {
-        kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
-        pdof++;
-      }
-  }
-
-  if (pstyle == ISO)
-     lkt_press = kt;
-  else
-    lkt_press = pdof * kt;
-  etap_dotdot = (kecurrent - lkt_press)/etap_mass;
+    etap_mass = kt / (p_freq_max*p_freq_max);
 
   double dt_small = dt/nc_pchain;;
   double dthalf_small = 0.5*dt_small;
-  for (int iloop = 0; iloop < nc_pchain; iloop++) {
-
-    etap_dot += etap_dotdot * dthalf_small;
-
-    factor_etap = exp(-dt_small*etap_dot);
-    for (i = 0; i < 3; i++)
-      if (p_flag[i]) omega_dot[i] *= factor_etap;
-
-    if (pstyle == TRICLINIC) {
-      for (i = 3; i < 6; i++)
-        if (p_flag[i]) omega_dot[i] *= factor_etap;
+  for (i = 0; i < number; i++)
+    if (p_flag[i]) {
+      etap_dotdot = (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)/etap_mass;
+      for (int iloop = 0; iloop < nc_pchain; iloop++) {
+        etap_dot[i] += etap_dotdot * dthalf_small;
+        omega_dot[i] *= exp(-dt_small*etap_dot[i]);
+        etap_dotdot = (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)/etap_mass;
+        etap_dot[0] += etap_dotdot * dthalf_small;
+      }
     }
-
-    kecurrent = 0.0;
-    for (i = 0; i < 3; i++)
-      if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
-
-    if (pstyle == TRICLINIC) {
-      for (i = 3; i < 6; i++)
-        if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
-    }
-
-    etap_dotdot = (kecurrent - lkt_press)/etap_mass;
-
-    etap_dot += etap_dotdot * dthalf_small;
-  }
 }
 
 /* ----------------------------------------------------------------------
@@ -1579,38 +1546,6 @@ void FixNHL::nve_x(double dt)
       x[i][0] += dt * v[i][0];
       x[i][1] += dt * v[i][1];
       x[i][2] += dt * v[i][2];
-    }
-  }
-}
-
-/* ----------------------------------------------------------------------
-   perform half-step thermostat scaling of velocities
------------------------------------------------------------------------*/
-
-void FixNHL::nh_v_temp()
-{
-  double **v = atom->v;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  if (which == NOBIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-      }
-    }
-  } else if (which == BIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-        temperature->restore_bias(i,v[i]);
-      }
     }
   }
 }
