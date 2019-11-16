@@ -51,7 +51,7 @@ class FixNHL : public Fix {
   double t0;                        // reference temperature
                                     // used for barostat mass
   double t_start,t_stop;
-  double t_current,t_target,ke_target;
+  double t_current,t_target;
   double t_freq;
 
   int pstat_flag;                   // 1 if control P

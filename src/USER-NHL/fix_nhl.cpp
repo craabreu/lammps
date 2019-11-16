@@ -41,7 +41,6 @@ using namespace FixConst;
 #define DELTAFLIP 0.1
 #define TILTMAX 1.5
 
-enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
@@ -585,9 +584,6 @@ void FixNHL::init()
     error->all(FLERR,"Temperature ID for fix nvt/npt does not exist");
   temperature = modify->compute[icompute];
 
-  if (temperature->tempbias) which = BIAS;
-  else which = NOBIAS;
-
   if (pstat_flag) {
     icompute = modify->find_compute(id_press);
     if (icompute < 0)
@@ -782,15 +778,6 @@ void FixNHL::initial_integrate(int /*vflag*/)
 void FixNHL::final_integrate()
 {
   nve_v(dthalf);
-
-  // re-compute temp before nh_v_press(dthalf)
-  // only needed for temperature computes with BIAS on reneighboring steps:
-  //   b/c some biases store per-atom values (e.g. temp/profile)
-  //   per-atom values are invalid if reneigh/comm occurred
-  //     since temp->compute() in initial_integrate()
-
-  if (which == BIAS && neighbor->ago == 0)
-    t_current = temperature->compute_scalar();
 
   if (pstat_flag) nh_v_press(dthalf);
 
@@ -1441,37 +1428,18 @@ void FixNHL::nh_v_press(double dt)
   factor[1] = exp(-dthalf*(omega_dot[1]+mtk_term2));
   factor[2] = exp(-dthalf*(omega_dot[2]+mtk_term2));
 
-  if (which == NOBIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        v[i][0] *= factor[0];
-        v[i][1] *= factor[1];
-        v[i][2] *= factor[2];
-        if (pstyle == TRICLINIC) {
-          v[i][0] += -dt*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
-          v[i][1] += -dt*v[i][2]*omega_dot[3];
-        }
-        v[i][0] *= factor[0];
-        v[i][1] *= factor[1];
-        v[i][2] *= factor[2];
+  for (int i = 0; i < nlocal; i++) {
+    if (mask[i] & groupbit) {
+      v[i][0] *= factor[0];
+      v[i][1] *= factor[1];
+      v[i][2] *= factor[2];
+      if (pstyle == TRICLINIC) {
+        v[i][0] += -dt*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
+        v[i][1] += -dt*v[i][2]*omega_dot[3];
       }
-    }
-  } else if (which == BIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        v[i][0] *= factor[0];
-        v[i][1] *= factor[1];
-        v[i][2] *= factor[2];
-        if (pstyle == TRICLINIC) {
-          v[i][0] += -dt*(v[i][1]*omega_dot[5] + v[i][2]*omega_dot[4]);
-          v[i][1] += -dt*v[i][2]*omega_dot[3];
-        }
-        v[i][0] *= factor[0];
-        v[i][1] *= factor[1];
-        v[i][2] *= factor[2];
-        temperature->restore_bias(i,v[i]);
-      }
+      v[i][0] *= factor[0];
+      v[i][1] *= factor[1];
+      v[i][2] *= factor[2];
     }
   }
 }
@@ -1670,7 +1638,6 @@ void FixNHL::compute_temp_target()
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
 
   t_target = t_start + delta * (t_stop-t_start);
-  ke_target = tdof * boltz * t_target;
 }
 
 /* ----------------------------------------------------------------------
