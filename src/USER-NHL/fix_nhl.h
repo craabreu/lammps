@@ -54,7 +54,6 @@ class FixNHL : public Fix {
   double t_current,t_target,ke_target;
   double t_freq;
 
-  int tstat_flag;                   // 1 if control T
   int pstat_flag;                   // 1 if control P
 
   int pstyle,pcouple,allremap;

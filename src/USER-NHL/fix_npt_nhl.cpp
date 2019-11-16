@@ -24,8 +24,6 @@ using namespace FixConst;
 FixNPT_NHL::FixNPT_NHL(LAMMPS *lmp, int narg, char **arg) :
   FixNHL(lmp, narg, arg)
 {
-  if (!tstat_flag)
-    error->all(FLERR,"Temperature control must be used with fix npt/nhl");
   if (!pstat_flag)
     error->all(FLERR,"Pressure control must be used with fix npt/nhl");
 
