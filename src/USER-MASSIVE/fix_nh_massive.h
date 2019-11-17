@@ -86,6 +86,10 @@ class FixNHMassive : public Fix {
   double etap_dot[6];              // chain thermostat for barostat
   double etap_mass;
 
+  int langevin_flag;               // 1 for stochastic thermostatting
+  class RanMars *random;           // Random number generator
+  double gamma_langevin;           // Langevin friction constant
+
   int pdim;                        // number of barostatted dims
   double p_freq_max;               // maximum barostat frequency
 

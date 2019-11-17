@@ -20,8 +20,7 @@
 /* ----------------------------------------------------------------------
 TO DO LIST:
 -------------------------------------------------------------------------
-1. Include keyword "langevin seed damp" to enable Nose-Hoover-Langevin
-   thermostatting, where damp = 1/gamma (time units)
+1. Implement restart management involving random number generator
 2. Include keyword "molecular yes/no" to enable barostatting with molecular
    rather than atomic pressure.
 3. Implement alternative barostat with fixed temperature and include keyword
@@ -49,6 +48,7 @@ TO DO LIST:
 #include "domain.h"
 #include "memory.h"
 #include "error.h"
+#include "random_mars.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -86,6 +86,8 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   flipflag = 1;
   dipole_flag = 0;
   dlm_flag = 0;
+  langevin_flag = 0;
+  gamma_langevin = 0.0;
 
   tcomputeflag = 0;
   pcomputeflag = 0;
@@ -325,6 +327,15 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       iarg += 3;
     } else if (strcmp(arg[iarg],"ext") == 0) {
       iarg += 2;
+
+    } else if (strcmp(arg[iarg],"langevin") == 0) {
+      if (iarg+3 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
+      langevin_flag = 1;
+      int seed = force->inumeric(FLERR,arg[iarg+1]);
+      random = new RanMars(lmp, seed + comm->me);
+      double damp = force->numeric(FLERR,arg[iarg+2]);
+      gamma_langevin = 1.0/damp;
+      iarg += 3;
 
     } else error->all(FLERR,"Illegal fix <ensemble>/massive command");
   }
@@ -1368,16 +1379,34 @@ void FixNHMassive::nh_temp_integrate(double dt)
   // Update masses, to preserve initial freq, if flag set
   if (eta_mass_flag) eta_mass = kT / (t_freq*t_freq);
 
-  double dt2m = 0.5*dt/eta_mass;
-  for (int i = 0; i < atom->nlocal; i ++)
-    if (mask[i] & groupbit) {
-      double mass = rmass ? rmass[i] : tmass[type[i]];
-      for (int j = 0; j < 3; j++) {
-        eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
-        v[i][j] *= exp(-dt*eta_dot[i][j]);
-        eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+  double dt2 = 0.5*dt;
+  double dt2m = dt2/eta_mass;
+  if (langevin_flag) {
+    double factor = exp(-gamma_langevin*dt);
+    double sigma = t_freq*sqrt(1.0 - factor*factor);
+    for (int i = 0; i < atom->nlocal; i ++)
+      if (mask[i] & groupbit) {
+        double mass = rmass ? rmass[i] : tmass[type[i]];
+        for (int j = 0; j < 3; j++) {
+          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+          v[i][j] *= exp(-dt2*eta_dot[i][j]);
+          eta_dot[i][j] = factor*eta_dot[i][j] + sigma*random->gaussian();
+          v[i][j] *= exp(-dt2*eta_dot[i][j]);
+          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+        }
       }
-    }
+  }
+  else {
+    for (int i = 0; i < atom->nlocal; i ++)
+      if (mask[i] & groupbit) {
+        double mass = rmass ? rmass[i] : tmass[type[i]];
+        for (int j = 0; j < 3; j++) {
+          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+          v[i][j] *= exp(-dt*eta_dot[i][j]);
+          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+        }
+      }
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -1402,13 +1431,28 @@ void FixNHMassive::nh_press_integrate(double dt)
   if (etap_mass_flag)
     etap_mass = kt / (p_freq_max*p_freq_max);
 
-  double dt2m = 0.5*dt/etap_mass;
-  for (i = 0; i < number; i++)
-    if (p_flag[i]) {
-      etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-      omega_dot[i] *= exp(-dt*etap_dot[i]);
-      etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-    }
+  double dt2 = 0.5*dt;
+  double dt2m = dt2/etap_mass;
+  if (langevin_flag) {
+    double factor = exp(-gamma_langevin*dt);
+    double sigma = p_freq_max*sqrt(1.0 - factor*factor);
+    for (i = 0; i < number; i++)
+      if (p_flag[i]) {
+        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+        omega_dot[i] *= exp(-dt2*etap_dot[i]);
+        etap_dot[i] = factor*etap_dot[i] + sigma*random->gaussian();
+        omega_dot[i] *= exp(-dt2*etap_dot[i]);
+        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+      }
+  }
+  else {
+    for (i = 0; i < number; i++)
+      if (p_flag[i]) {
+        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+        omega_dot[i] *= exp(-dt*etap_dot[i]);
+        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+      }
+  }
 }
 
 /* ----------------------------------------------------------------------
