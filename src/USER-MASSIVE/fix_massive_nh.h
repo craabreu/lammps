@@ -91,7 +91,6 @@ class FixMassiveNH : public Fix {
 
   double p_hydro;                  // hydrostatic target pressure
 
-  int nc_tchain,nc_pchain;
   double sigma[6];                 // scaled target stress
   double fdev[6];                  // deviatoric force on barostat
   int deviatoric_flag;             // 0 if target stress tensor is hydrostatic

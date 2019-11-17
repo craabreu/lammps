@@ -78,7 +78,6 @@ FixMassiveNH::FixMassiveNH(LAMMPS *lmp, int narg, char **arg) :
   pcouple = NONE;
   allremap = 1;
   id_dilate = NULL;
-  nc_tchain = nc_pchain = 1;
   deviatoric_flag = 0;
   nreset_h0 = 0;
   eta_mass_flag = 1;
@@ -269,16 +268,6 @@ FixMassiveNH::FixMassiveNH(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"tloop") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
-      nc_tchain = force->inumeric(FLERR,arg[iarg+1]);
-      if (nc_tchain < 0) error->all(FLERR,"Illegal fix <ensemble>/massive command");
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"ploop") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
-      nc_pchain = force->inumeric(FLERR,arg[iarg+1]);
-      if (nc_pchain < 0) error->all(FLERR,"Illegal fix <ensemble>/massive command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"nreset") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       nreset_h0 = force->inumeric(FLERR,arg[iarg+1]);
@@ -1366,7 +1355,6 @@ void *FixMassiveNH::extract(const char *str, int &dim)
 
 void FixMassiveNH::nhl_temp_integrate(double dt)
 {
-  double eta_dotdot;
   double kT = boltz * t_target;
 
   double **v = atom->v;
@@ -1380,19 +1368,14 @@ void FixMassiveNH::nhl_temp_integrate(double dt)
   // Update masses, to preserve initial freq, if flag set
   if (eta_mass_flag) eta_mass = kT / (t_freq*t_freq);
 
-  double dt_small = dt/nc_tchain;
-  double dthalf_small = 0.5*dt_small;
+  double dt2m = 0.5*dt/eta_mass;
   for (int i = 0; i < atom->nlocal; i ++)
     if (mask[i] & groupbit) {
       double mass = rmass ? rmass[i] : tmass[type[i]];
       for (int j = 0; j < 3; j++) {
-        eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
-        for (int iloop = 0; iloop < nc_tchain; iloop++) {
-          eta_dot[i][j] += eta_dotdot * dthalf_small;
-          v[i][j] *= exp(-dt_small*eta_dot[i][j]);
-          eta_dotdot = (mass*v[i][j]*v[i][j] - kT)/eta_mass;
-          eta_dot[i][j] += eta_dotdot * dthalf_small;
-        }
+        eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+        v[i][j] *= exp(-dt*eta_dot[i][j]);
+        eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
       }
     }
 }
@@ -1405,7 +1388,6 @@ void FixMassiveNH::nhl_temp_integrate(double dt)
 void FixMassiveNH::nhl_press_integrate(double dt)
 {
   int i;
-  double etap_dotdot;
   double kt = boltz * t_target;
   int number = pstyle == TRICLINIC ? 6 : 3;
 
@@ -1420,17 +1402,12 @@ void FixMassiveNH::nhl_press_integrate(double dt)
   if (etap_mass_flag)
     etap_mass = kt / (p_freq_max*p_freq_max);
 
-  double dt_small = dt/nc_pchain;;
-  double dthalf_small = 0.5*dt_small;
+  double dt2m = 0.5*dt/etap_mass;
   for (i = 0; i < number; i++)
     if (p_flag[i]) {
-      etap_dotdot = (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)/etap_mass;
-      for (int iloop = 0; iloop < nc_pchain; iloop++) {
-        etap_dot[i] += etap_dotdot * dthalf_small;
-        omega_dot[i] *= exp(-dt_small*etap_dot[i]);
-        etap_dotdot = (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)/etap_mass;
-        etap_dot[0] += etap_dotdot * dthalf_small;
-      }
+      etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+      omega_dot[i] *= exp(-dt*etap_dot[i]);
+      etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
     }
 }
 
