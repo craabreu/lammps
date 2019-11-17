@@ -31,7 +31,7 @@ TO DO LIST:
    stands for generalized equipartition.
 ------------------------------------------------------------------------- */
 
-#include "fix_massive_nh.h"
+#include "fix_nh_massive.h"
 #include <cstring>
 #include <cmath>
 #include "atom.h"
@@ -63,7 +63,7 @@ enum{ISO,ANISO,TRICLINIC};
    NVT,NPT integrators for massive thermostatting equations of motion
  ---------------------------------------------------------------------- */
 
-FixMassiveNH::FixMassiveNH(LAMMPS *lmp, int narg, char **arg) :
+FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(NULL), id_dilate(NULL), irregular(NULL), id_temp(NULL), id_press(NULL)
 {
@@ -513,7 +513,7 @@ FixMassiveNH::FixMassiveNH(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-FixMassiveNH::~FixMassiveNH()
+FixNHMassive::~FixNHMassive()
 {
   if (copymode) return;
 
@@ -538,7 +538,7 @@ FixMassiveNH::~FixMassiveNH()
 
 /* ---------------------------------------------------------------------- */
 
-int FixMassiveNH::setmask()
+int FixNHMassive::setmask()
 {
   int mask = 0;
   mask |= INITIAL_INTEGRATE;
@@ -552,7 +552,7 @@ int FixMassiveNH::setmask()
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::init()
+void FixNHMassive::init()
 {
   // recheck that dilate group has not been deleted
 
@@ -666,7 +666,7 @@ void FixMassiveNH::init()
    compute T,P before integrator starts
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::setup(int /*vflag*/)
+void FixNHMassive::setup(int /*vflag*/)
 {
   // tdof needed by compute_temp_target()
 
@@ -735,7 +735,7 @@ void FixMassiveNH::setup(int /*vflag*/)
    1st half of Verlet update
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::initial_integrate(int /*vflag*/)
+void FixNHMassive::initial_integrate(int /*vflag*/)
 {
   compute_temp_target();
 
@@ -768,8 +768,8 @@ void FixMassiveNH::initial_integrate(int /*vflag*/)
   if (pstat_flag) remap(dthalf);
 
   nve_x(dthalf);
-  nhl_temp_integrate(dtfull);
-  if (pstat_flag) nhl_press_integrate(dtfull);
+  nh_temp_integrate(dtfull);
+  if (pstat_flag) nh_press_integrate(dtfull);
   nve_x(dthalf);
 
   // remap simulation box by 1/2 step
@@ -785,7 +785,7 @@ void FixMassiveNH::initial_integrate(int /*vflag*/)
    2nd half of Verlet update
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::final_integrate()
+void FixNHMassive::final_integrate()
 {
   nve_v(dthalf);
 
@@ -817,7 +817,7 @@ void FixMassiveNH::final_integrate()
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
+void FixNHMassive::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
@@ -865,8 +865,8 @@ void FixMassiveNH::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloo
   if (ilevel == 0) {
     if (pstat_flag) remap(dthalf);
     nve_x(dthalf);
-    nhl_temp_integrate(dtfull);
-    if (pstat_flag) nhl_press_integrate(dtfull);
+    nh_temp_integrate(dtfull);
+    if (pstat_flag) nh_press_integrate(dtfull);
     nve_x(dthalf);
     if (pstat_flag) remap(dthalf);
   }
@@ -880,7 +880,7 @@ void FixMassiveNH::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloo
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::final_integrate_respa(int ilevel, int /*iloop*/)
+void FixNHMassive::final_integrate_respa(int ilevel, int /*iloop*/)
 {
   // set timesteps by level
 
@@ -897,7 +897,7 @@ void FixMassiveNH::final_integrate_respa(int ilevel, int /*iloop*/)
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::couple()
+void FixNHMassive::couple()
 {
   double *tensor = pressure->vector;
 
@@ -945,7 +945,7 @@ void FixMassiveNH::couple()
    if rigid bodies exist, scale rigid body centers-of-mass
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::remap(double dt)
+void FixNHMassive::remap(double dt)
 {
   int i;
   double oldlo,oldhi;
@@ -1121,7 +1121,7 @@ void FixMassiveNH::remap(double dt)
    pack entire state of Fix into one write
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::write_restart(FILE *fp)
+void FixNHMassive::write_restart(FILE *fp)
 {
   int nsize = size_restart_global();
 
@@ -1143,7 +1143,7 @@ void FixMassiveNH::write_restart(FILE *fp)
     calculate the number of data to be packed
 ------------------------------------------------------------------------- */
 
-int FixMassiveNH::size_restart_global()
+int FixNHMassive::size_restart_global()
 {
   int nsize = 1;
   nsize += 1 + 3*atom->nlocal;
@@ -1158,7 +1158,7 @@ int FixMassiveNH::size_restart_global()
    pack restart data
 ------------------------------------------------------------------------- */
 
-int FixMassiveNH::pack_restart_data(double *list)
+int FixNHMassive::pack_restart_data(double *list)
 {
   int n = 0;
 
@@ -1204,7 +1204,7 @@ int FixMassiveNH::pack_restart_data(double *list)
    use state info from restart file to restart the Fix
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::restart(char *buf)
+void FixNHMassive::restart(char *buf)
 {
   int n = 0;
   double *list = (double *) buf;
@@ -1248,7 +1248,7 @@ void FixMassiveNH::restart(char *buf)
 
 /* ---------------------------------------------------------------------- */
 
-int FixMassiveNH::modify_param(int narg, char **arg)
+int FixNHMassive::modify_param(int narg, char **arg)
 {
   if (strcmp(arg[0],"temp") == 0) {
     if (narg < 2) error->all(FLERR,"Illegal fix_modify command");
@@ -1309,14 +1309,14 @@ int FixMassiveNH::modify_param(int narg, char **arg)
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::reset_target(double t_new)
+void FixNHMassive::reset_target(double t_new)
 {
   t_target = t_start = t_stop = t_new;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void FixMassiveNH::reset_dt()
+void FixNHMassive::reset_dt()
 {
   dtfull = update->dt;
   dthalf = 0.5 * update->dt;
@@ -1326,7 +1326,7 @@ void FixMassiveNH::reset_dt()
    extract thermostat properties
 ------------------------------------------------------------------------- */
 
-void *FixMassiveNH::extract(const char *str, int &dim)
+void *FixNHMassive::extract(const char *str, int &dim)
 {
   dim=0;
   if (strcmp(str,"t_target") == 0) {
@@ -1353,7 +1353,7 @@ void *FixMassiveNH::extract(const char *str, int &dim)
    perform update of thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::nhl_temp_integrate(double dt)
+void FixNHMassive::nh_temp_integrate(double dt)
 {
   double kT = boltz * t_target;
 
@@ -1385,7 +1385,7 @@ void FixMassiveNH::nhl_temp_integrate(double dt)
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::nhl_press_integrate(double dt)
+void FixNHMassive::nh_press_integrate(double dt)
 {
   int i;
   double kt = boltz * t_target;
@@ -1415,7 +1415,7 @@ void FixMassiveNH::nhl_press_integrate(double dt)
    perform barostat scaling of velocities
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::nh_v_press(double dt)
+void FixNHMassive::nh_v_press(double dt)
 {
   double dthalf = 0.5*dt;
   double factor[3];
@@ -1448,7 +1448,7 @@ void FixMassiveNH::nh_v_press(double dt)
    perform update of velocities
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::nve_v(double dt)
+void FixNHMassive::nve_v(double dt)
 {
   double dtf = dt * force->ftm2v;
   double dtfm;
@@ -1486,7 +1486,7 @@ void FixMassiveNH::nve_v(double dt)
    perform update of positions
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::nve_x(double dt)
+void FixNHMassive::nve_x(double dt)
 {
   double **x = atom->x;
   double **v = atom->v;
@@ -1510,7 +1510,7 @@ void FixMassiveNH::nve_x(double dt)
    needed whenever p_target or h0_inv changes
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::compute_sigma()
+void FixNHMassive::compute_sigma()
 {
   // if nreset_h0 > 0, reset vol0 and h0_inv
   // every nreset_h0 timesteps
@@ -1568,7 +1568,7 @@ void FixMassiveNH::compute_sigma()
    compute strain energy
 -----------------------------------------------------------------------*/
 
-double FixMassiveNH::compute_strain_energy()
+double FixNHMassive::compute_strain_energy()
 {
   // compute strain energy = 0.5*Tr(sigma*h*h^t) in energy units
 
@@ -1596,7 +1596,7 @@ double FixMassiveNH::compute_strain_energy()
    compute deviatoric barostat force = h*sigma*h^t
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::compute_deviatoric()
+void FixNHMassive::compute_deviatoric()
 {
   // generate upper-triangular part of h*sigma*h^t
   // units of fdev are are PV, e.g. atm*A^3
@@ -1632,7 +1632,7 @@ void FixMassiveNH::compute_deviatoric()
    compute target temperature and kinetic energy
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::compute_temp_target()
+void FixNHMassive::compute_temp_target()
 {
   double delta = update->ntimestep - update->beginstep;
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
@@ -1644,7 +1644,7 @@ void FixMassiveNH::compute_temp_target()
    compute hydrostatic target pressure
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::compute_press_target()
+void FixNHMassive::compute_press_target()
 {
   double delta = update->ntimestep - update->beginstep;
   if (delta != 0.0) delta /= update->endstep - update->beginstep;
@@ -1670,7 +1670,7 @@ void FixMassiveNH::compute_press_target()
    update omega_dot
 -----------------------------------------------------------------------*/
 
-void FixMassiveNH::nh_omega_dot(double dt)
+void FixNHMassive::nh_omega_dot(double dt)
 {
   double f_omega,volume;
 
@@ -1733,7 +1733,7 @@ void FixMassiveNH::nh_omega_dot(double dt)
     image flags to new values, making eqs in doc of Domain:image_flip incorrect
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::pre_exchange()
+void FixNHMassive::pre_exchange()
 {
   double xprd = domain->xprd;
   double yprd = domain->yprd;
@@ -1800,7 +1800,7 @@ void FixMassiveNH::pre_exchange()
    memory usage of Irregular
 ------------------------------------------------------------------------- */
 
-double FixMassiveNH::memory_usage()
+double FixNHMassive::memory_usage()
 {
   double bytes = 0.0;
   if (irregular) bytes += irregular->memory_usage();
@@ -1812,16 +1812,16 @@ double FixMassiveNH::memory_usage()
    allocate atom-based arrays
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::grow_arrays(int nmax)
+void FixNHMassive::grow_arrays(int nmax)
 {
-  memory->grow(eta_dot,nmax,3,"fix_nhl:eta_dot");
+  memory->grow(eta_dot,nmax,3,"fix_nh:eta_dot");
 }
 
 /* ----------------------------------------------------------------------
    copy values within local atom-based array
 ------------------------------------------------------------------------- */
 
-void FixMassiveNH::copy_arrays(int i, int j, int /*delflag*/)
+void FixNHMassive::copy_arrays(int i, int j, int /*delflag*/)
 {
   eta_dot[j][0] = eta_dot[i][0];
   eta_dot[j][1] = eta_dot[i][1];
@@ -1832,7 +1832,7 @@ void FixMassiveNH::copy_arrays(int i, int j, int /*delflag*/)
    pack values in local atom-based array for exchange with another proc
 ------------------------------------------------------------------------- */
 
-int FixMassiveNH::pack_exchange(int i, double *buf)
+int FixNHMassive::pack_exchange(int i, double *buf)
 {
   int n = 0;
   buf[n++] = eta_dot[i][0];
@@ -1845,7 +1845,7 @@ int FixMassiveNH::pack_exchange(int i, double *buf)
    unpack values in local atom-based array from exchange with another proc
 ------------------------------------------------------------------------- */
 
-int FixMassiveNH::unpack_exchange(int nlocal, double *buf)
+int FixNHMassive::unpack_exchange(int nlocal, double *buf)
 {
   int n = 0;
   eta_dot[nlocal][0] = buf[n++];
