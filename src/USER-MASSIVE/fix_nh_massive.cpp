@@ -1370,6 +1370,7 @@ void *FixNHMassive::extract(const char *str, int &dim)
 
 void FixNHMassive::nh_temp_integrate(double dt)
 {
+  double eta_dot_aux;
   double kT = boltz * t_target;
 
   double **v = atom->v;
@@ -1392,10 +1393,9 @@ void FixNHMassive::nh_temp_integrate(double dt)
       if (mask[i] & groupbit) {
         double mass = rmass ? rmass[i] : tmass[type[i]];
         for (int j = 0; j < 3; j++) {
-          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
-          v[i][j] *= exp(-dt2*eta_dot[i][j]);
-          eta_dot[i][j] = factor*eta_dot[i][j] + sigma*random->gaussian();
-          v[i][j] *= exp(-dt2*eta_dot[i][j]);
+          eta_dot_aux = eta_dot[i][j] + (mass*v[i][j]*v[i][j] - kT)*dt2m;
+          eta_dot[i][j] = factor*eta_dot_aux + sigma*random->gaussian();
+          v[i][j] *= exp(-dt2*(eta_dot_aux + eta_dot[i][j]));
           eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
         }
       }
@@ -1405,9 +1405,9 @@ void FixNHMassive::nh_temp_integrate(double dt)
       if (mask[i] & groupbit) {
         double mass = rmass ? rmass[i] : tmass[type[i]];
         for (int j = 0; j < 3; j++) {
-          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
-          v[i][j] *= exp(-dt*eta_dot[i][j]);
-          eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
+          eta_dot_aux = eta_dot[i][j] + (mass*v[i][j]*v[i][j] - kT)*dt2m;
+          v[i][j] *= exp(-dt*eta_dot_aux);
+          eta_dot[i][j] = eta_dot_aux + (mass*v[i][j]*v[i][j] - kT)*dt2m;
         }
       }
   }
@@ -1421,6 +1421,7 @@ void FixNHMassive::nh_temp_integrate(double dt)
 void FixNHMassive::nh_press_integrate(double dt)
 {
   int i;
+  double etap_dot_aux;
   double kt = boltz * t_target;
   int number = pstyle == TRICLINIC ? 6 : 3;
 
@@ -1442,19 +1443,18 @@ void FixNHMassive::nh_press_integrate(double dt)
     double sigma = p_freq_max*sqrt(1.0 - factor*factor);
     for (i = 0; i < number; i++)
       if (p_flag[i]) {
-        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-        omega_dot[i] *= exp(-dt2*etap_dot[i]);
-        etap_dot[i] = factor*etap_dot[i] + sigma*random->gaussian();
-        omega_dot[i] *= exp(-dt2*etap_dot[i]);
+        etap_dot_aux = etap_dot[i] + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+        etap_dot[i] = factor*etap_dot_aux + sigma*random->gaussian();
+        omega_dot[i] *= exp(-dt2*(etap_dot_aux + etap_dot[i]));
         etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
       }
   }
   else {
     for (i = 0; i < number; i++)
       if (p_flag[i]) {
-        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-        omega_dot[i] *= exp(-dt*etap_dot[i]);
-        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+        etap_dot_aux = etap_dot[i] + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
+        omega_dot[i] *= exp(-dt*etap_dot_aux);
+        etap_dot[i] = etap_dot_aux + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
       }
   }
 }
