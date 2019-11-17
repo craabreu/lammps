@@ -39,4 +39,4 @@ fix		1 all npt/massive temp 1 1 $(100*dt) iso 1 1 $(1000*dt) langevin 123 100.0
 thermo		50
 run		250
 write_restart restart.equil
-run		25000
+run		250

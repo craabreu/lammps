@@ -20,12 +20,11 @@
 /* ----------------------------------------------------------------------
 TO DO LIST:
 -------------------------------------------------------------------------
-1. Implement restart management involving random number generator
-2. Include keyword "molecular yes/no" to enable barostatting with molecular
+1. Include keyword "molecular yes/no" to enable barostatting with molecular
    rather than atomic pressure.
-3. Implement alternative barostat with fixed temperature and include keyword
+2. Implement alternative barostat with fixed temperature and include keyword
    "mkt yes/no" (default=no) to enable original MTK barostat.
-4. Implement isokinetic constraints and include keyword "speedlim" with
+3. Implement isokinetic constraints and include keyword "speedlim" with
    options "none/isok/geneq", where isok stands for isokinetic and geneq
    stands for generalized equipartition.
 ------------------------------------------------------------------------- */
@@ -48,7 +47,7 @@ TO DO LIST:
 #include "domain.h"
 #include "memory.h"
 #include "error.h"
-#include "random_mars.h"
+#include "random_pcg.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -86,8 +85,10 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   flipflag = 1;
   dipole_flag = 0;
   dlm_flag = 0;
+
   langevin_flag = 0;
   gamma_langevin = 0.0;
+  random = NULL;
 
   tcomputeflag = 0;
   pcomputeflag = 0;
@@ -332,7 +333,7 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+3 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       langevin_flag = 1;
       int seed = force->inumeric(FLERR,arg[iarg+1]);
-      random = new RanMars(lmp, seed + comm->me);
+      random = new RanPCG(lmp, seed + comm->me);
       double damp = force->numeric(FLERR,arg[iarg+2]);
       gamma_langevin = 1.0/damp;
       iarg += 3;
@@ -1162,6 +1163,7 @@ int FixNHMassive::size_restart_global()
     nsize += 15;
     if (deviatoric_flag) nsize += 6;
   }
+  if (langevin_flag) nsize++;
   return nsize;
 }
 
@@ -1207,6 +1209,7 @@ int FixNHMassive::pack_restart_data(double *list)
       list[n++] = h0_inv[5];
     }
   }
+  if (langevin_flag) list[n++] = random->get_state();
 
   return n;
 }
@@ -1255,6 +1258,7 @@ void FixNHMassive::restart(char *buf)
       h0_inv[5] = list[n++];
     }
   }
+  if (langevin_flag) random->set_state(list[n++]);
 }
 
 /* ---------------------------------------------------------------------- */
