@@ -1852,7 +1852,7 @@ double FixNHMassive::memory_usage()
 {
   double bytes = 0.0;
   if (irregular) bytes += irregular->memory_usage();
-  bytes += atom->nmax*2*sizeof(double);
+  bytes += atom->nmax*3*sizeof(double);
   return bytes;
 }
 
