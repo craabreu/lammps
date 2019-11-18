@@ -38,6 +38,8 @@ class RanPCG : protected Pointers {
 
  private:
   uint64_t state;
+  int save;
+  double second;
 };
 
 }

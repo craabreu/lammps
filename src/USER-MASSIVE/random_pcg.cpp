@@ -15,8 +15,7 @@
 // Website: http://www.pcg-random.org
 // Author: M.E. O'Neill
 
-// Gaussian RN: Ziggurat method
-// Website: https://www.seehuhn.de/pages/ziggurat
+// Gaussian RN: Box-Muller Method
 
 #include "random_pcg.h"
 #include <cmath>
@@ -145,6 +144,7 @@ RanPCG::RanPCG(LAMMPS *lmp, int seed) : Pointers(lmp)
   i32();
   state += (uint64_t)seed;
   i32();
+  save = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -173,33 +173,26 @@ double RanPCG::uniform()
 }
 
 /* ----------------------------------------------------------------------
-   gaussian RN (Ziggurat method)
+   gaussian RN (Box-Muller method)
 ------------------------------------------------------------------------- */
 
 double RanPCG::gaussian()
 {
-  unsigned long  U, sign, i, j;
-  double  x, y;
+  double first,v1,v2,rsq,fac;
 
-  while (1) {
-    U = i32();
-    i = U & 0x0000007F;		/* 7 bit to choose the step */
-    sign = U & 0x00000080;	/* 1 bit for the sign */
-    j = U>>8;			/* 24 bit for the x-value */
-
-    x = j*wtab[i];
-    if (j < ktab[i])  break;
-
-    if (i<127) {
-      double  y0, y1;
-      y0 = ytab[i];
-      y1 = ytab[i+1];
-      y = y1+(y0-y1)*AM*i32();
-    } else {
-      x = PARAM_R - log(1.0-AM*i32())/PARAM_R;
-      y = exp(-PARAM_R*(x-0.5*PARAM_R))*AM*i32();
-    }
-    if (y < exp(-0.5*x*x))  break;
+  if (!save) {
+    do {
+      v1 = 2.0*uniform()-1.0;
+      v2 = 2.0*uniform()-1.0;
+      rsq = v1*v1 + v2*v2;
+    } while ((rsq >= 1.0) || (rsq == 0.0));
+    fac = sqrt(-2.0*log(rsq)/rsq);
+    second = v1*fac;
+    first = v2*fac;
+    save = 1;
+  } else {
+    first = second;
+    save = 0;
   }
-  return  sign ? x : -x;
+  return first;
 }
