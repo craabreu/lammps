@@ -145,7 +145,6 @@ RanPCG::RanPCG(LAMMPS *lmp, int seed) : Pointers(lmp)
   i32();
   state += (uint64_t)seed;
   i32();
-  save = 0;
 }
 
 /* ---------------------------------------------------------------------- */

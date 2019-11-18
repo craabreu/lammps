@@ -28,11 +28,6 @@ class RanPCG : protected Pointers {
   double uniform();
   double gaussian();
 
- private:
-  uint64_t state;
-  int save;
-  double second;
-
   inline uint32_t i32() {
     uint64_t oldstate = state;
     state = oldstate * 6364136223846793005ULL + inc;
@@ -41,6 +36,8 @@ class RanPCG : protected Pointers {
     return (xorshifted >> rot) | (xorshifted << ((-rot) & 31));
   };
 
+ private:
+  uint64_t state;
 };
 
 }

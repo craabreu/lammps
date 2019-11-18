@@ -20,11 +20,13 @@
 /* ----------------------------------------------------------------------
 TO DO LIST:
 -------------------------------------------------------------------------
-1. Include keyword "molecular yes/no" to enable barostatting with molecular
+1. Allow specification of distinct frictions to temperature and pressure
+   langevin thermostats.
+2. Include keyword "molecular yes/no" to enable barostatting with molecular
    rather than atomic pressure.
-2. Implement alternative barostat with fixed temperature and include keyword
+3. Implement alternative barostat with fixed temperature and include keyword
    "mkt yes/no" (default=no) to enable original MTK barostat.
-3. Implement isokinetic constraints and include keyword "speedlim" with
+4. Implement isokinetic constraints and include keyword "speedlim" with
    options "none/isok/geneq", where isok stands for isokinetic and geneq
    stands for generalized equipartition.
 ------------------------------------------------------------------------- */
@@ -88,7 +90,7 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
 
   langevin_flag = 0;
   gamma_langevin = 0.0;
-  random = NULL;
+  random_temp = random_press = NULL;
 
   tcomputeflag = 0;
   pcomputeflag = 0;
@@ -333,7 +335,10 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+3 > narg) error->all(FLERR,"Illegal fix <ensemble>/massive command");
       langevin_flag = 1;
       int seed = force->inumeric(FLERR,arg[iarg+1]);
-      random = new RanPCG(lmp, seed + comm->me);
+      random_press = new RanPCG(lmp, seed);
+      int a = (int)random_press->i32();
+      int b = (int)random_press->i32();
+      random_temp = new RanPCG(lmp, a + comm->me*b);
       double damp = force->numeric(FLERR,arg[iarg+2]);
       gamma_langevin = 1.0/damp;
       iarg += 3;
@@ -1163,7 +1168,10 @@ int FixNHMassive::size_restart_global()
     nsize += 15;
     if (deviatoric_flag) nsize += 6;
   }
-  if (langevin_flag) nsize++;
+  if (langevin_flag) {
+    nsize++;
+    if (pstat_flag) nsize++;
+  }
   return nsize;
 }
 
@@ -1209,7 +1217,10 @@ int FixNHMassive::pack_restart_data(double *list)
       list[n++] = h0_inv[5];
     }
   }
-  if (langevin_flag) list[n++] = random->get_state();
+  if (langevin_flag) {
+    list[n++] = random_temp->get_state();
+    if (pstat_flag) list[n++] = random_press->get_state();
+  }
 
   return n;
 }
@@ -1258,7 +1269,7 @@ void FixNHMassive::restart(char *buf)
       h0_inv[5] = list[n++];
     }
   }
-  if (langevin_flag) random->set_state(list[n++]);
+  if (langevin_flag) random_temp->set_state(list[n++]);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1394,7 +1405,7 @@ void FixNHMassive::nh_temp_integrate(double dt)
         double mass = rmass ? rmass[i] : tmass[type[i]];
         for (int j = 0; j < 3; j++) {
           eta_dot_aux = eta_dot[i][j] + (mass*v[i][j]*v[i][j] - kT)*dt2m;
-          eta_dot[i][j] = factor*eta_dot_aux + sigma*random->gaussian();
+          eta_dot[i][j] = factor*eta_dot_aux + sigma*random_temp->gaussian();
           v[i][j] *= exp(-dt2*(eta_dot_aux + eta_dot[i][j]));
           eta_dot[i][j] += (mass*v[i][j]*v[i][j] - kT)*dt2m;
         }
@@ -1444,7 +1455,7 @@ void FixNHMassive::nh_press_integrate(double dt)
     for (i = 0; i < number; i++)
       if (p_flag[i]) {
         etap_dot_aux = etap_dot[i] + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-        etap_dot[i] = factor*etap_dot_aux + sigma*random->gaussian();
+        etap_dot[i] = factor*etap_dot_aux + sigma*random_press->gaussian();
         omega_dot[i] *= exp(-dt2*(etap_dot_aux + etap_dot[i]));
         etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
       }

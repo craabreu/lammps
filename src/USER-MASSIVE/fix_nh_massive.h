@@ -87,7 +87,8 @@ class FixNHMassive : public Fix {
   double etap_mass;
 
   int langevin_flag;               // 1 for stochastic thermostatting
-  class RanPCG *random;            // Random number generator
+  class RanPCG *random_temp;       // Random number generator for T control
+  class RanPCG *random_press;      // Random number generator for P control
   double gamma_langevin;           // Langevin friction constant
 
   int pdim;                        // number of barostatted dims
