@@ -83,7 +83,7 @@ class FixNHMassive : public Fix {
   double **eta_dot;                // thermostat for particles
   double eta_mass;
 
-  double etap_dot[6];              // chain thermostat for barostat
+  double etap_dot;                 // chain thermostat for barostat
   double etap_mass;
 
   int langevin_flag;               // 1 for stochastic thermostatting

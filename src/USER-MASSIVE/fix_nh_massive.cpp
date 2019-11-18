@@ -508,10 +508,9 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   if (pstat_flag) {
     omega_dot[0] = omega_dot[1] = omega_dot[2] = 0.0;
     omega_mass[0] = omega_mass[1] = omega_mass[2] = 0.0;
-    etap_dot[0] = etap_dot[1] = etap_dot[2] = 0.0;
+    etap_dot = 0.0;
     omega_dot[3] = omega_dot[4] = omega_dot[5] = 0.0;
     omega_mass[3] = omega_mass[4] = omega_mass[5] = 0.0;
-    etap_dot[3] = etap_dot[4] = etap_dot[5] = 0.0;
   }
 
   nrigid = 0;
@@ -1165,7 +1164,7 @@ int FixNHMassive::size_restart_global()
   int nsize = 1;
   nsize += 1 + 3*atom->nlocal;
   if (pstat_flag) {
-    nsize += 15;
+    nsize += 10;
     if (deviatoric_flag) nsize += 6;
   }
   if (langevin_flag) {
@@ -1200,12 +1199,7 @@ int FixNHMassive::pack_restart_data(double *list)
     list[n++] = omega_dot[5];
     list[n++] = vol0;
     list[n++] = t0;
-    list[n++] = etap_dot[0];
-    list[n++] = etap_dot[1];
-    list[n++] = etap_dot[2];
-    list[n++] = etap_dot[3];
-    list[n++] = etap_dot[4];
-    list[n++] = etap_dot[5];
+    list[n++] = etap_dot;
 
     list[n++] = deviatoric_flag;
     if (deviatoric_flag) {
@@ -1249,14 +1243,8 @@ void FixNHMassive::restart(char *buf)
     omega_dot[5] = list[n++];
     vol0 = list[n++];
     t0 = list[n++];
-    if (pstat_flag) {
-      etap_dot[0] = list[n++];
-      etap_dot[1] = list[n++];
-      etap_dot[2] = list[n++];
-      etap_dot[3] = list[n++];
-      etap_dot[4] = list[n++];
-      etap_dot[5] = list[n++];
-    }
+    if (pstat_flag)
+      etap_dot = list[n++];
     else
       n += 6;
     flag = static_cast<int> (list[n++]);
@@ -1269,7 +1257,10 @@ void FixNHMassive::restart(char *buf)
       h0_inv[5] = list[n++];
     }
   }
-  if (langevin_flag) random_temp->set_state(list[n++]);
+  if (langevin_flag) {
+    random_temp->set_state(list[n++]);
+    if (pstat_flag) random_press->set_state(list[n++]);
+  }
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1399,7 +1390,7 @@ void FixNHMassive::nh_temp_integrate(double dt)
   double dt2m = dt2/eta_mass;
   if (langevin_flag) {
     double factor = exp(-gamma_langevin*dt);
-    double sigma = t_freq*sqrt(1.0 - factor*factor);
+    double sigma = sqrt((1.0 - factor*factor)*kT/eta_mass);
     for (int i = 0; i < atom->nlocal; i ++)
       if (mask[i] & groupbit) {
         double mass = rmass ? rmass[i] : tmass[type[i]];
@@ -1431,12 +1422,12 @@ void FixNHMassive::nh_temp_integrate(double dt)
 
 void FixNHMassive::nh_press_integrate(double dt)
 {
-  int i;
-  double etap_dot_aux;
-  double kt = boltz * t_target;
+  int ich,i,pdof;
   int number = pstyle == TRICLINIC ? 6 : 3;
+  double kt = boltz * t_target;
 
   // Update masses, to preserve initial freq, if flag set
+
   if (omega_mass_flag) {
     double nkt = (atom->natoms + 1) * kt;
     for (int i = 0; i < number; i++)
@@ -1445,29 +1436,33 @@ void FixNHMassive::nh_press_integrate(double dt)
   }
 
   if (etap_mass_flag)
-    etap_mass = kt / (p_freq_max*p_freq_max);
+    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
 
+  double kecurrent = 0.0;
+  pdof = 0;
+  for (i = 0; i < number; i++)
+    if (p_flag[i]) {
+      kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
+      pdof++;
+    }
+
+  double lkt_press = pstyle == ISO ? kt : pdof*kt;
   double dt2 = 0.5*dt;
   double dt2m = dt2/etap_mass;
-  if (langevin_flag) {
-    double factor = exp(-gamma_langevin*dt);
-    double sigma = p_freq_max*sqrt(1.0 - factor*factor);
-    for (i = 0; i < number; i++)
-      if (p_flag[i]) {
-        etap_dot_aux = etap_dot[i] + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-        etap_dot[i] = factor*etap_dot_aux + sigma*random_press->gaussian();
-        omega_dot[i] *= exp(-dt2*(etap_dot_aux + etap_dot[i]));
-        etap_dot[i] += (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-      }
-  }
-  else {
-    for (i = 0; i < number; i++)
-      if (p_flag[i]) {
-        etap_dot_aux = etap_dot[i] + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-        omega_dot[i] *= exp(-dt*etap_dot_aux);
-        etap_dot[i] = etap_dot_aux + (omega_mass[i]*omega_dot[i]*omega_dot[i] - kt)*dt2m;
-      }
-  }
+
+  double etap_dot_aux = etap_dot + (kecurrent - lkt_press)*dt2m;
+
+  double factor = exp(-gamma_langevin*dt);
+  double sigma = sqrt((1.0 - factor*factor)*kt/etap_mass);
+  etap_dot = factor*etap_dot_aux + sigma*random_press->gaussian();
+
+  factor = exp(-dt2*(etap_dot_aux + etap_dot));
+
+  for (i = 0; i < number; i++)
+    if (p_flag[i])
+      omega_dot[i] *= factor;
+
+  etap_dot += (kecurrent*factor*factor - lkt_press)*dt2m;
 }
 
 /* ----------------------------------------------------------------------

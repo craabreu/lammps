@@ -15,7 +15,7 @@ pair_style	lj/cut 2.5
 pair_coeff	1 1 1.0 1.0 2.5
 
 neighbor	0.3 bin
-neigh_modify	every 20 delay 0 check no
+neigh_modify	every 1 delay 0 check yes
 
 #variable dt equal 0.01
 variable dt equal 0.002
@@ -39,4 +39,4 @@ fix		1 all npt/massive temp 1 1 $(100*dt) iso 1 1 $(1000*dt) langevin 123 $(10*d
 thermo		50
 run		250
 write_restart restart.equil
-run		250
+run		25000
