@@ -45,6 +45,9 @@ class ComputeVirial : public Compute {
  private:
   char *pstyle;
   int nsub;
+  int nchunk;
+  char *idchunk;
+  class ComputeChunkAtom *cchunk;
 };
 
 }

@@ -27,6 +27,7 @@
 #include "pair.h"
 #include "pair_hybrid.h"
 #include "update.h"
+#include "compute_chunk_atom.h"
 
 #include <cctype>
 #include <cstring>
@@ -35,10 +36,13 @@ using namespace LAMMPS_NS;
 /* ---------------------------------------------------------------------- */
 
 ComputeVirial::ComputeVirial(LAMMPS *lmp, int narg, char **arg) :
-  Compute(lmp, narg, arg), vptr(nullptr), pstyle(nullptr)
+  Compute(lmp, narg, arg), vptr(nullptr), pstyle(nullptr), idchunk(nullptr)
 {
-  if (narg != 3) error->all(FLERR,"Illegal compute virial command");
+  if (narg < 3 || narg > 4) error->all(FLERR,"Illegal compute virial command");
   if (igroup) error->all(FLERR,"compute virial must use group all");
+
+  if (narg == 4)
+    idchunk = utils::strdup(arg[3]);
 
   scalar_flag = vector_flag = 1;
   size_vector = 6;
@@ -59,12 +63,22 @@ ComputeVirial::~ComputeVirial()
   delete [] vector;
   delete [] vptr;
   delete [] pstyle;
+  delete [] idchunk;
 }
 
 /* ---------------------------------------------------------------------- */
 
 void ComputeVirial::init()
 {
+  if (idchunk) {
+    int icompute = modify->find_compute(idchunk);
+    if (icompute < 0)
+      error->all(FLERR,"Chunk/atom compute does not exist for compute virial");
+    cchunk = (ComputeChunkAtom *) modify->compute[icompute];
+    if (strcmp(cchunk->style,"chunk/atom") != 0)
+      error->all(FLERR,"Compute virial does not use chunk/atom compute");
+  }
+
   boltz = force->boltz;
   nktv2p = force->nktv2p;
   dimension = domain->dimension;
