@@ -11,7 +11,7 @@
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
 
-#include "compute_virial_atomic.h"
+#include "compute_virial.h"
 
 #include "angle.h"
 #include "atom.h"
@@ -34,11 +34,11 @@ using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeVirialAtomic::ComputeVirialAtomic(LAMMPS *lmp, int narg, char **arg) :
+ComputeVirial::ComputeVirial(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg), vptr(nullptr), pstyle(nullptr)
 {
-  if (narg != 3) error->all(FLERR,"Illegal compute virial/atomic command");
-  if (igroup) error->all(FLERR,"compute virial/atomic must use group all");
+  if (narg != 3) error->all(FLERR,"Illegal compute virial command");
+  if (igroup) error->all(FLERR,"compute virial must use group all");
 
   scalar_flag = vector_flag = 1;
   size_vector = 6;
@@ -54,7 +54,7 @@ ComputeVirialAtomic::ComputeVirialAtomic(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-ComputeVirialAtomic::~ComputeVirialAtomic()
+ComputeVirial::~ComputeVirial()
 {
   delete [] vector;
   delete [] vptr;
@@ -63,7 +63,7 @@ ComputeVirialAtomic::~ComputeVirialAtomic()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeVirialAtomic::init()
+void ComputeVirial::init()
 {
   boltz = force->boltz;
   nktv2p = force->nktv2p;
@@ -113,7 +113,7 @@ void ComputeVirialAtomic::init()
    compute total pressure, averaged over Pxx, Pyy, Pzz
 ------------------------------------------------------------------------- */
 
-double ComputeVirialAtomic::compute_scalar()
+double ComputeVirial::compute_scalar()
 {
   invoked_scalar = update->ntimestep;
   if (update->vflag_global != invoked_scalar)
@@ -133,11 +133,11 @@ double ComputeVirialAtomic::compute_scalar()
 }
 
 /* ----------------------------------------------------------------------
-   compute virial/atomic tensor
+   compute virial tensor
    assume KE tensor has already been computed
 ------------------------------------------------------------------------- */
 
-void ComputeVirialAtomic::compute_vector()
+void ComputeVirial::compute_vector()
 {
   invoked_vector = update->ntimestep;
   if (update->vflag_global != invoked_vector)
@@ -164,7 +164,7 @@ void ComputeVirialAtomic::compute_vector()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeVirialAtomic::virial_compute(int n, int ndiag)
+void ComputeVirial::virial_compute(int n, int ndiag)
 {
   int i,j;
   double v[6],*vcomponent;
@@ -195,6 +195,6 @@ void ComputeVirialAtomic::virial_compute(int n, int ndiag)
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeVirialAtomic::reset_extra_compute_fix(const char *id_new)
+void ComputeVirial::reset_extra_compute_fix(const char *id_new)
 {
 }

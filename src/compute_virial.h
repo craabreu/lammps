@@ -13,21 +13,21 @@
 
 #ifdef COMPUTE_CLASS
 
-ComputeStyle(virial/atomic,ComputeVirialAtomic)
+ComputeStyle(virial,ComputeVirial)
 
 #else
 
-#ifndef LMP_COMPUTE_VIRIAL_ATOMIC_H
-#define LMP_COMPUTE_VIRIAL_ATOMIC_H
+#ifndef LMP_COMPUTE_VIRIAL_H
+#define LMP_COMPUTE_VIRIAL_H
 
 #include "compute.h"
 
 namespace LAMMPS_NS {
 
-class ComputeVirialAtomic : public Compute {
+class ComputeVirial : public Compute {
  public:
-  ComputeVirialAtomic(class LAMMPS *, int, char **);
-  virtual ~ComputeVirialAtomic();
+  ComputeVirial(class LAMMPS *, int, char **);
+  virtual ~ComputeVirial();
   virtual void init();
   virtual double compute_scalar();
   virtual void compute_vector();
