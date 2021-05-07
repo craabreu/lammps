@@ -169,10 +169,9 @@ void PairLJSwitchCoulLong::compute(int eflag, int vflag)
           jtype = type[j];
           forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
           if (rsq > cut_lj_innersq) {
-            switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-              (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-            switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-              (rsq-cut_lj_innersq) * denom_lj_inv;
+            double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+            switch1 = 1+t*t*t*(-10+t*(15-t*6));
+            switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
             philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
             forcelj = forcelj*switch1 + philj*switch2;
           }
@@ -203,8 +202,8 @@ void PairLJSwitchCoulLong::compute(int eflag, int vflag)
           if (rsq < cut_ljsq) {
             evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]);
             if (rsq > cut_lj_innersq) {
-              switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-                (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
+              double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+              switch1 = 1+t*t*t*(-10+t*(15-t*6));
               evdwl *= switch1;
             }
             evdwl *= factor_lj;
@@ -356,10 +355,9 @@ void PairLJSwitchCoulLong::compute_middle()
         jtype = type[j];
         forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
         if (rsq > cut_lj_innersq) {
-          switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-            (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-          switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-            (rsq-cut_lj_innersq) * denom_lj_inv;
+          double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+          switch1 = 1+t*t*t*(-10+t*(15-t*6));
+          switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
           philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
           forcelj = forcelj*switch1 + philj*switch2;
         }
@@ -488,10 +486,9 @@ void PairLJSwitchCoulLong::compute_outer(int eflag, int vflag)
           r6inv = r2inv*r2inv*r2inv;
           forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
           if (rsq > cut_lj_innersq) {
-            switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-              (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-            switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-              (rsq-cut_lj_innersq) * denom_lj_inv;
+            double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+            switch1 = 1+t*t*t*(-10+t*(15-t*6));
+            switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
             philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
             forcelj = forcelj*switch1 + philj*switch2;
           }
@@ -532,8 +529,8 @@ void PairLJSwitchCoulLong::compute_outer(int eflag, int vflag)
             r6inv = r2inv*r2inv*r2inv;
             evdwl = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]);
             if (rsq > cut_lj_innersq) {
-              switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-                (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
+              double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+              switch1 = 1+t*t*t*(-10+t*(15-t*6));
               evdwl *= switch1;
             }
             evdwl *= factor_lj;
@@ -560,10 +557,9 @@ void PairLJSwitchCoulLong::compute_outer(int eflag, int vflag)
             r6inv = r2inv*r2inv*r2inv;
             forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
             if (rsq > cut_lj_innersq) {
-              switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-                (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-              switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-                (rsq-cut_lj_innersq) * denom_lj_inv;
+              double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+              switch1 = 1+t*t*t*(-10+t*(15-t*6));
+              switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
               philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
               forcelj = forcelj*switch1 + philj*switch2;
             }
@@ -571,10 +567,9 @@ void PairLJSwitchCoulLong::compute_outer(int eflag, int vflag)
             r6inv = r2inv*r2inv*r2inv;
             forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
             if (rsq > cut_lj_innersq) {
-              switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-                (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-              switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-                (rsq-cut_lj_innersq) * denom_lj_inv;
+              double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+              switch1 = 1+t*t*t*(-10+t*(15-t*6));
+              switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
               philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
               forcelj = forcelj*switch1 + philj*switch2;
             }
@@ -712,8 +707,7 @@ void PairLJSwitchCoulLong::init_style()
   cut_coulsq = cut_coul * cut_coul;
   cut_bothsq = MAX(cut_ljsq,cut_coulsq);
 
-  denom_lj = ( (cut_ljsq-cut_lj_innersq) * (cut_ljsq-cut_lj_innersq) *
-               (cut_ljsq-cut_lj_innersq) );
+  denom_lj = cut_ljsq - cut_lj_innersq;
   denom_lj_inv = 1.0 / denom_lj;
 
   // set & error check interior rRESPA cutoffs
@@ -945,10 +939,9 @@ double PairLJSwitchCoulLong::single(int i, int j, int itype, int jtype,
     r6inv = r2inv*r2inv*r2inv;
     forcelj = r6inv * (lj1[itype][jtype]*r6inv - lj2[itype][jtype]);
     if (rsq > cut_lj_innersq) {
-      switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-        (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
-      switch2 = 12.0*rsq * (cut_ljsq-rsq) *
-        (rsq-cut_lj_innersq) * denom_lj_inv;
+      double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+      switch1 = 1+t*t*t*(-10+t*(15-t*6));
+      switch2 = t*t*(-60+t*(120-t*60))*rsq*denom_lj_inv;
       philj = r6inv * (lj3[itype][jtype]*r6inv - lj4[itype][jtype]);
       forcelj = forcelj*switch1 + philj*switch2;
     }
@@ -970,8 +963,8 @@ double PairLJSwitchCoulLong::single(int i, int j, int itype, int jtype,
   if (rsq < cut_ljsq) {
     philj = r6inv*(lj3[itype][jtype]*r6inv-lj4[itype][jtype]);
     if (rsq > cut_lj_innersq) {
-      switch1 = (cut_ljsq-rsq) * (cut_ljsq-rsq) *
-        (cut_ljsq + 2.0*rsq - 3.0*cut_lj_innersq) * denom_lj_inv;
+      double t = (rsq-cut_lj_innersq)*denom_lj_inv;
+      switch1 = 1+t*t*t*(-10+t*(15-t*6));
       philj *= switch1;
     }
     eng += factor_lj*philj;
