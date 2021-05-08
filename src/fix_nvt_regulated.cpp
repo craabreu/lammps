@@ -17,9 +17,10 @@
 #include "comm.h"
 #include "error.h"
 #include "force.h"
+#include "memory.h"
+#include "random_mars.h"
 #include "respa.h"
 #include "update.h"
-#include "random_mars.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -49,6 +50,14 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
   // initialize Marsaglia RNG with processor-unique seed
 
   random = new RanMars(lmp, seed + 143*comm->me);
+
+  // setup atom-based array for v_eta
+  // register with Atom class
+  // no need to set peratom_flag, b/c data is for internal use only
+
+  v_eta = nullptr;
+  grow_arrays(atom->nmax);
+  atom->add_callback(Atom::GROW);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -187,4 +196,60 @@ void FixNVTRegulated::reset_dt()
 {
   dtv = update->dt;
   dtf = 0.5 * update->dt * force->ftm2v;
+}
+
+/* ----------------------------------------------------------------------
+   memory usage of tally array
+------------------------------------------------------------------------- */
+
+double FixNVTRegulated::memory_usage()
+{
+  double bytes = (double)atom->nmax*3*sizeof(double);
+  return bytes;
+}
+
+/* ----------------------------------------------------------------------
+   allocate atom-based array for v_eta
+------------------------------------------------------------------------- */
+
+void FixNVTRegulated::grow_arrays(int nmax)
+{
+  memory->grow(v_eta, nmax, 3, "fix_nvt_regulated:v_eta");
+}
+
+/* ----------------------------------------------------------------------
+   copy values within local atom-based array
+------------------------------------------------------------------------- */
+
+void FixNVTRegulated::copy_arrays(int i, int j, int /*delflag*/)
+{
+  v_eta[j][0] = v_eta[i][0];
+  v_eta[j][1] = v_eta[i][1];
+  v_eta[j][2] = v_eta[i][2];
+}
+
+/* ----------------------------------------------------------------------
+   pack values in local atom-based array for exchange with another proc
+------------------------------------------------------------------------- */
+
+int FixNVTRegulated::pack_exchange(int i, double *buf)
+{
+  int n = 0;
+  buf[n++] = v_eta[i][0];
+  buf[n++] = v_eta[i][1];
+  buf[n++] = v_eta[i][2];
+  return n;
+}
+
+/* ----------------------------------------------------------------------
+   unpack values in local atom-based array from exchange with another proc
+------------------------------------------------------------------------- */
+
+int FixNVTRegulated::unpack_exchange(int nlocal, double *buf)
+{
+  int n = 0;
+  v_eta[nlocal][0] = buf[n++];
+  v_eta[nlocal][1] = buf[n++];
+  v_eta[nlocal][2] = buf[n++];
+  return n;
 }
