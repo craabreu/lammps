@@ -28,6 +28,7 @@
 #include "pair_hybrid.h"
 #include "update.h"
 #include "compute_chunk_atom.h"
+#include "memory.h"
 
 #include <cctype>
 #include <cstring>
@@ -54,6 +55,9 @@ ComputeVirial::ComputeVirial(LAMMPS *lmp, int narg, char **arg) :
   vector = new double[size_vector];
   nvirial = 0;
   vptr = nullptr;
+  firstflag = 1;
+  nchunk = 0;
+  vchunk = new double[6];
 }
 
 /* ---------------------------------------------------------------------- */
@@ -64,6 +68,11 @@ ComputeVirial::~ComputeVirial()
   delete [] vptr;
   delete [] pstyle;
   delete [] idchunk;
+  delete [] vchunk;
+  memory->destroy(massproc);
+  memory->destroy(masstotal);
+  memory->destroy(com);
+  memory->destroy(comall);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -99,6 +108,7 @@ void ComputeVirial::init()
   }
   for (int i = 0; i < modify->nfix; i++)
     if (modify->fix[i]->thermo_virial) nvirial++;
+  if (idchunk) nvirial++;
 
   if (nvirial) {
     vptr = new double*[nvirial];
@@ -113,6 +123,7 @@ void ComputeVirial::init()
     for (int i = 0; i < modify->nfix; i++)
       if (modify->fix[i]->virial_global_flag && modify->fix[i]->thermo_virial)
         vptr[nvirial++] = modify->fix[i]->virial;
+    if (idchunk) vptr[nvirial++] = vchunk;
   }
 
   // flag Kspace contribution separately, since not summed across procs
@@ -132,6 +143,8 @@ double ComputeVirial::compute_scalar()
   invoked_scalar = update->ntimestep;
   if (update->vflag_global != invoked_scalar)
     error->all(FLERR,"Virial was not tallied on needed timestep");
+
+  if (idchunk) compute_chunk_virial();
 
   if (dimension == 3) {
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
@@ -160,6 +173,8 @@ void ComputeVirial::compute_vector()
   if (force->kspace && kspace_virial && force->kspace->scalar_pressure_flag)
     error->all(FLERR,"Must use 'kspace_modify pressure/scalar no' for "
                "tensor components with kspace_style msm");
+
+  if (idchunk) compute_chunk_virial();
 
   if (dimension == 3) {
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
@@ -201,14 +216,119 @@ void ComputeVirial::virial_compute(int n, int ndiag)
   if (kspace_virial)
     for (i = 0; i < n; i++) virial[i] += kspace_virial[i];
 
+
   // LJ long-range tail correction, only if pair contributions are included
 
   if (force->pair && force->pair->tail_flag)
     for (i = 0; i < ndiag; i++) virial[i] += force->pair->ptail * inv_volume;
+
 }
 
 /* ---------------------------------------------------------------------- */
 
 void ComputeVirial::reset_extra_compute_fix(const char *id_new)
 {
+}
+
+/* ---------------------------------------------------------------------- */
+
+void ComputeVirial::compute_chunk_virial()
+{
+  int index;
+  double massone;
+  double unwrap[3];
+
+  // compute chunk/atom assigns atoms to chunk IDs
+  // extract ichunk index vector from compute
+  // ichunk = 1 to Nchunk for included atoms, 0 for excluded atoms
+
+  int n = cchunk->setup_chunks();
+  cchunk->compute_ichunk();
+  int *ichunk = cchunk->ichunk;
+
+  // first time call, allocate per-chunk arrays
+  // thereafter, require nchunk remain the same
+
+  if (firstflag) {
+    nchunk = n;
+    memory->create(massproc,nchunk,"virial:massproc");
+    memory->create(masstotal,nchunk,"virial:masstotal");
+    memory->create(com,nchunk,3,"virial:com");
+    memory->create(comall,nchunk,3,"virial:comall");
+    firstflag = 0;
+  }
+  else if (n != nchunk)
+    error->all(FLERR,"Compute virial nchunk is not static");
+
+  // zero local per-chunk values
+
+  for (int i = 0; i < nchunk; i++) {
+    massproc[i] = 0.0;
+    com[i][0] = com[i][1] = com[i][2] = 0.0;
+  }
+
+  // compute current COM for each chunk
+
+  double **x = atom->x;
+  double **f = atom->f;
+  int *mask = atom->mask;
+  int *type = atom->type;
+  imageint *image = atom->image;
+  double *mass = atom->mass;
+  double *rmass = atom->rmass;
+  int nlocal = atom->nlocal;
+
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      index = ichunk[i]-1;
+      if (index < 0) continue;
+      if (rmass) massone = rmass[i];
+      else massone = mass[type[i]];
+      domain->unmap(x[i],image[i],unwrap);
+      massproc[index] += massone;
+      com[index][0] += unwrap[0] * massone;
+      com[index][1] += unwrap[1] * massone;
+      com[index][2] += unwrap[2] * massone;
+    }
+
+  MPI_Allreduce(massproc,masstotal,nchunk,MPI_DOUBLE,MPI_SUM,world);
+  MPI_Allreduce(&com[0][0],&comall[0][0],3*nchunk,MPI_DOUBLE,MPI_SUM,world);
+
+  for (int i = 0; i < nchunk; i++)
+    if (masstotal[i] > 0.0) {
+      comall[i][0] /= masstotal[i];
+      comall[i][1] /= masstotal[i];
+      comall[i][2] /= masstotal[i];
+    }
+
+  for (int i = 0; i < 6; i++) vchunk[i] = 0.0;
+
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      index = ichunk[i]-1;
+      if (index < 0) continue;
+      domain->unmap(x[i],image[i],unwrap);
+      double dx = comall[index][0] - unwrap[0];
+      double dy = comall[index][1] - unwrap[1];
+      double dz = comall[index][2] - unwrap[2];
+      double fx = f[i][0];
+      double fy = f[i][1];
+      double fz = f[i][2];
+      vchunk[0] += dx*fx;
+      vchunk[1] += dy*fy;
+      vchunk[2] += dz*fz;
+      vchunk[3] += dx*fy;
+      vchunk[4] += dx*fz;
+      vchunk[5] += dy*fz;
+    }
+}
+
+/* ----------------------------------------------------------------------
+   memory usage of local data
+------------------------------------------------------------------------- */
+
+double ComputeVirial::memory_usage()
+{
+  double bytes = (double) nchunk * 8 * sizeof(double);
+  return bytes;
 }

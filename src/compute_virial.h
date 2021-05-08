@@ -32,6 +32,7 @@ class ComputeVirial : public Compute {
   virtual double compute_scalar();
   virtual void compute_vector();
   void reset_extra_compute_fix(const char *);
+  double memory_usage();
 
  protected:
   double boltz,nktv2p,inv_volume;
@@ -41,13 +42,20 @@ class ComputeVirial : public Compute {
   double virial[6];                // ordering: xx,yy,zz,xy,xz,yz
 
   void virial_compute(int, int);
+  void compute_chunk_virial();
 
  private:
   char *pstyle;
   int nsub;
+
   int nchunk;
   char *idchunk;
   class ComputeChunkAtom *cchunk;
+  double *vchunk;
+
+  int firstflag;
+  double *massproc,*masstotal;
+  double **com,**comall;
 };
 
 }
