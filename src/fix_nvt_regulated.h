@@ -29,11 +29,13 @@ class FixNVTRegulated : public Fix {
   FixNVTRegulated(class LAMMPS *, int, char **);
   virtual ~FixNVTRegulated() {}
   int setmask();
-  virtual void init();
+  void init();
+  void setup(int);
   virtual void initial_integrate(int);
   virtual void final_integrate();
   virtual void initial_integrate_respa(int, int, int);
   virtual void final_integrate_respa(int, int);
+  virtual void end_of_step();
   virtual void reset_dt();
 
   double memory_usage();
@@ -42,17 +44,19 @@ class FixNVTRegulated : public Fix {
   int pack_exchange(int, double *);
   int unpack_exchange(int, double *);
 
+
  protected:
   double dtv,dtf;
   double *step_respa;
   int mass_require;
 
-  double t_target, t_damp, gamma;
+  double temp, tau, gamma;
+  double n;
 
   class RanMars *random;
   int seed;
 
-  double **v_eta;
+  double *c, *pscale, **p, **v_eta;
 };
 
 }
