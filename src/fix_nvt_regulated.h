@@ -66,7 +66,7 @@ class FixNVTRegulated : public Fix {
   int seed;
 
   double *c, *pscale, **ps, **eta, **v_eta;
-  double kT, Q_eta, efactor, vfactor;
+  double kT, np1, Q_eta, vfactor;
 };
 
 }

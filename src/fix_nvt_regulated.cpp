@@ -39,9 +39,6 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
 
   dynamic_group_allow = 1;
   time_integrate = 1;
-  scalar_flag = 1;
-  extscalar = 1;
-  ecouple_flag = 1;
 
   temp = utils::numeric(FLERR, arg[3], false, lmp);
   tau = utils::numeric(FLERR, arg[4], false, lmp);
@@ -73,6 +70,9 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
       error->all(FLERR,"Illegal fix nvt/regulated command");
   }
 
+  if (deterministic_flag)
+    scalar_flag = extscalar = ecouple_flag = 1;
+
   // initialize Marsaglia RNG with processor-unique seed
 
   random = new RanMars(lmp, seed + 143*comm->me);
@@ -88,8 +88,8 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
 
   kT = force->boltz*temp/force->mvv2e;
   Q_eta = n*kT*tau*tau;
-  efactor = (n+1)/n;
-  vfactor = sqrt(efactor);
+  np1 = n + 1;
+  vfactor = sqrt(np1/n);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -167,16 +167,14 @@ void FixNVTRegulated::setup(int vflag)
 
 void FixNVTRegulated::initial_integrate(int /*vflag*/)
 {
-  double dtfi, mdts, efacmi, ci, pi0, pi1, pi2, vi0, vi1, vi2;
+  double dtfi, dtvci, vs0, vs1, vs2;
+  double dts = 2.0*dtv;
+  double dte = dtv*kT/Q_eta;
 
   // update v and x of atoms in group
 
   double **x = atom->x;
-  double **v = atom->v;
   double **f = atom->f;
-  double *rmass = atom->rmass;
-  double *mass = atom->mass;
-  int *type = atom->type;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
@@ -184,54 +182,54 @@ void FixNVTRegulated::initial_integrate(int /*vflag*/)
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       dtfi = dtf*pscale[i];
-      ps[i][0] += dtfi * f[i][0];
-      ps[i][1] += dtfi * f[i][1];
-      ps[i][2] += dtfi * f[i][2];
+      dtvci = dtv*c[i];
 
-      ci = c[i];
-      vi0 = ci*tanh(ps[i][0]);
-      vi1 = ci*tanh(ps[i][1]);
-      vi2 = ci*tanh(ps[i][2]);
+      ps[i][0] += dtfi*f[i][0];
+      ps[i][1] += dtfi*f[i][1];
+      ps[i][2] += dtfi*f[i][2];
 
-      x[i][0] += dtv*vi0;
-      x[i][1] += dtv*vi1;
-      x[i][2] += dtv*vi2;
+      vs0 = tanh(ps[i][0]);
+      vs1 = tanh(ps[i][1]);
+      vs2 = tanh(ps[i][2]);
 
-      efacmi = rmass ? efactor*rmass[i] : efactor*mass[type[i]];
-      v_eta[i][0] += dtv*(efacmi*vi0*vi0 - kT);
-      v_eta[i][1] += dtv*(efacmi*vi1*vi1 - kT);
-      v_eta[i][2] += dtv*(efacmi*vi2*vi2 - kT);
+      x[i][0] += dtvci*vs0;
+      x[i][1] += dtvci*vs1;
+      x[i][2] += dtvci*vs2;
+
+      v_eta[i][0] += dte*(np1*vs0*vs0 - 1.0);
+      v_eta[i][1] += dte*(np1*vs1*vs1 - 1.0);
+      v_eta[i][2] += dte*(np1*vs2*vs2 - 1.0);
 
       if (deterministic_flag) {
-        mdts = -2.0*dtv;
-        ps[i][0] = asinh(sinh(ps[i][0])*exp(mdts*v_eta[i][0]));
-        ps[i][1] = asinh(sinh(ps[i][1])*exp(mdts*v_eta[i][1]));
-        ps[i][2] = asinh(sinh(ps[i][2])*exp(mdts*v_eta[i][2]));
+        ps[i][0] = asinh(sinh(ps[i][0])*exp(-dts*v_eta[i][0]));
+        ps[i][1] = asinh(sinh(ps[i][1])*exp(-dts*v_eta[i][1]));
+        ps[i][2] = asinh(sinh(ps[i][2])*exp(-dts*v_eta[i][2]));
+
+        eta[i][0] += dts*(1.0 - vs0*vs0)*v_eta[i][0];
+        eta[i][1] += dts*(1.0 - vs1*vs1)*v_eta[i][1];
+        eta[i][2] += dts*(1.0 - vs2*vs2)*v_eta[i][2];
       }
       else {
-        mdts = -dtv;
-        ps[i][0] = asinh(sinh(ps[i][0])*exp(mdts*v_eta[i][0]));
-        ps[i][1] = asinh(sinh(ps[i][1])*exp(mdts*v_eta[i][1]));
-        ps[i][2] = asinh(sinh(ps[i][2])*exp(mdts*v_eta[i][2]));
+        ps[i][0] = sinh(ps[i][0])*exp(-dtv*v_eta[i][0]);
+        ps[i][1] = sinh(ps[i][1])*exp(-dtv*v_eta[i][1]);
+        ps[i][2] = sinh(ps[i][2])*exp(-dtv*v_eta[i][2]);
 
-        // stochastic part comes here
-
-        ps[i][0] = asinh(sinh(ps[i][0])*exp(mdts*v_eta[i][0]));
-        ps[i][1] = asinh(sinh(ps[i][1])*exp(mdts*v_eta[i][1]));
-        ps[i][2] = asinh(sinh(ps[i][2])*exp(mdts*v_eta[i][2]));
+        ps[i][0] = asinh(ps[i][0]*exp(-dtv*v_eta[i][0]));
+        ps[i][1] = asinh(ps[i][1]*exp(-dtv*v_eta[i][1]));
+        ps[i][2] = asinh(ps[i][2]*exp(-dtv*v_eta[i][2]));
       }
 
-      vi0 = ci*tanh(ps[i][0]);
-      vi1 = ci*tanh(ps[i][1]);
-      vi2 = ci*tanh(ps[i][2]);
+      vs0 = tanh(ps[i][0]);
+      vs1 = tanh(ps[i][1]);
+      vs2 = tanh(ps[i][2]);
 
-      v_eta[i][0] += dtv*(efacmi*vi0*vi0 - kT);
-      v_eta[i][1] += dtv*(efacmi*vi1*vi1 - kT);
-      v_eta[i][2] += dtv*(efacmi*vi2*vi2 - kT);
+      v_eta[i][0] += dte*(np1*vs0*vs0 - 1.0);
+      v_eta[i][1] += dte*(np1*vs1*vs1 - 1.0);
+      v_eta[i][2] += dte*(np1*vs2*vs2 - 1.0);
 
-      x[i][0] += dtv*vi0;
-      x[i][1] += dtv*vi1;
-      x[i][2] += dtv*vi2;
+      x[i][0] += dtvci*vs0;
+      x[i][1] += dtvci*vs1;
+      x[i][2] += dtvci*vs2;
     }
 }
 
@@ -299,7 +297,7 @@ void FixNVTRegulated::end_of_step()
 
 double FixNVTRegulated::compute_scalar()
 {
-  double ke_std, ke_reg, energy, total;
+  double ke_std, ke_reg, ke_eta, pe_eta, energy, total;
 
   double **v = atom->v;
   double *rmass = atom->rmass;
@@ -309,18 +307,20 @@ double FixNVTRegulated::compute_scalar()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  double nkT = n*force->boltz*temp/force->mvv2e;
-
-  ke_std = ke_reg = 0.0;
+  ke_std = ke_reg = ke_eta = pe_eta = 0.0;
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double mi = rmass ? rmass[i] : mass[type[i]];
-      double factor = 1.0/sqrt(mi*nkT);
       ke_std += mi*(v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2]);
       ke_reg += logcosh(ps[i][0]) + logcosh(ps[i][1]) + logcosh(ps[i][2]);
+      ke_eta += v_eta[i][0]*v_eta[i][0] + v_eta[i][1]*v_eta[i][1] + v_eta[i][2]*v_eta[i][2];
+      if (deterministic_flag) pe_eta += eta[i][0] + eta[i][1] + eta[i][2];
     }
 
-  energy = force->mvv2e*(nkT*ke_reg - 0.5*ke_std);
+  energy = force->mvv2e*(n*kT*ke_reg - 0.5*ke_std
+     + kT*pe_eta
+     + 0.5*Q_eta*ke_eta
+   );
   MPI_Allreduce(&energy, &total, 1, MPI_DOUBLE, MPI_SUM, world);
   return total;
 }
