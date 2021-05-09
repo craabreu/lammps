@@ -56,15 +56,17 @@ class FixNVTRegulated : public Fix {
  protected:
   double dtv,dtf;
   double *step_respa;
-  int mass_require;
 
   double temp, tau, gamma;
+
   double n;
+  int deterministic_flag;
 
   class RanMars *random;
   int seed;
 
-  double *c, *pscale, **p, **v_eta;
+  double *c, *pscale, **ps, **eta, **v_eta;
+  double kT, Q_eta, efactor, vfactor;
 };
 
 }
