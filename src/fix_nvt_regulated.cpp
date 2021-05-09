@@ -39,6 +39,9 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
 
   dynamic_group_allow = 1;
   time_integrate = 1;
+  scalar_flag = 1;
+  extscalar = 1;
+  ecouple_flag = 1;
 
   temp = utils::numeric(FLERR, arg[3], false, lmp);
   tau = utils::numeric(FLERR, arg[4], false, lmp);
@@ -99,7 +102,6 @@ void FixNVTRegulated::init()
 
   // Store speed limits and momentum scaling factors
 
-  double kT = force->boltz*temp/force->mvv2e;
   double *rmass = atom->rmass;
   double *mass = atom->mass;
   int *type = atom->type;
@@ -107,10 +109,11 @@ void FixNVTRegulated::init()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
+  double nkT = n*force->boltz*temp/force->mvv2e;
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double mi = rmass ? rmass[i] : mass[type[i]];
-      c[i] = sqrt(n*kT/mi);
+      c[i] = sqrt(nkT/mi);
       pscale[i] = 1.0/(mi*c[i]);
     }
 }
@@ -170,16 +173,16 @@ void FixNVTRegulated::initial_integrate(int /*vflag*/)
       p[i][1] += dtf * f[i][1];
       p[i][2] += dtf * f[i][2];
 
-      double dtvci = dtv*c[i];
+      double dtv_ci = dtv*c[i];
       double factor = pscale[i];
 
-      x[i][0] += dtvci*tanh(factor*p[i][0]);
-      x[i][1] += dtvci*tanh(factor*p[i][1]);
-      x[i][2] += dtvci*tanh(factor*p[i][2]);
+      x[i][0] += dtv_ci*tanh(factor*p[i][0]);
+      x[i][1] += dtv_ci*tanh(factor*p[i][1]);
+      x[i][2] += dtv_ci*tanh(factor*p[i][2]);
 
-      x[i][0] += dtvci*tanh(factor*p[i][0]);
-      x[i][1] += dtvci*tanh(factor*p[i][1]);
-      x[i][2] += dtvci*tanh(factor*p[i][2]);
+      x[i][0] += dtv_ci*tanh(factor*p[i][0]);
+      x[i][1] += dtv_ci*tanh(factor*p[i][1]);
+      x[i][2] += dtv_ci*tanh(factor*p[i][2]);
     }
 }
 
@@ -241,6 +244,36 @@ void FixNVTRegulated::end_of_step()
       v[i][1] = ci*tanh(factor*p[i][1]);
       v[i][2] = ci*tanh(factor*p[i][2]);
     }
+}
+
+/* ---------------------------------------------------------------------- */
+
+double FixNVTRegulated::compute_scalar()
+{
+  double ke_std, ke_reg, energy, total;
+
+  double **v = atom->v;
+  double *rmass = atom->rmass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  double nkT = n*force->boltz*temp/force->mvv2e;
+
+  ke_std = ke_reg = 0.0;
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      double mi = rmass ? rmass[i] : mass[type[i]];
+      double factor = 1.0/sqrt(mi*nkT);
+      ke_std += mi*(v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2]);
+      ke_reg += logcosh(factor*p[i][0]) + logcosh(factor*p[i][1]) + logcosh(factor*p[i][2]);
+    }
+
+  energy = force->mvv2e*(nkT*ke_reg - 0.5*ke_std);
+  MPI_Allreduce(&energy, &total, 1, MPI_DOUBLE, MPI_SUM, world);
+  return total;
 }
 
 /* ---------------------------------------------------------------------- */

@@ -36,6 +36,7 @@ class FixNVTRegulated : public Fix {
   virtual void initial_integrate_respa(int, int, int);
   virtual void final_integrate_respa(int, int);
   virtual void end_of_step();
+  virtual double compute_scalar();
   virtual void reset_dt();
 
   double memory_usage();
@@ -44,6 +45,11 @@ class FixNVTRegulated : public Fix {
   int pack_exchange(int, double *);
   int unpack_exchange(int, double *);
 
+  static inline double logcosh(const double x)
+  {
+    double y = fabs(x);
+    return y + log1p(exp(-2*y)) - log(2);
+  }
 
  protected:
   double dtv,dtf;
