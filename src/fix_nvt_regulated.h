@@ -39,6 +39,8 @@ class FixNVTRegulated : public Fix {
   virtual double compute_scalar();
   virtual void reset_dt();
 
+  void convert_velocities();
+
   double memory_usage();
   void grow_arrays(int);
   void copy_arrays(int, int, int);

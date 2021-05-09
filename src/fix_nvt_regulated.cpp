@@ -116,38 +116,29 @@ void FixNVTRegulated::init()
       c[i] = sqrt(nkT/mi);
       pscale[i] = 1.0/(mi*c[i]);
     }
+
+  convert_velocities();
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixNVTRegulated::setup(int vflag)
 {
-  int initialize_momenta = 0;
-
   double **v = atom->v;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  int out_of_range = 0;
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit)
       for (int k = 0; k < 3; k++)
         if (abs(v[i][k]) >= c[i]) {
-          initialize_momenta = 1;
+          out_of_range = 1;
           break;
         }
 
-  if (initialize_momenta) {
-    double *rmass = atom->rmass;
-    double *mass = atom->mass;
-    int *type = atom->type;
-    for (int i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit) {
-        double mi = rmass ? rmass[i] : mass[type[i]];
-        for (int k = 0; k < 3; k++)
-          p[i][k] = mi*v[i][k];
-      }
-    end_of_step();
-  }
+  if (out_of_range) convert_velocities();
 }
 
 /* ----------------------------------------------------------------------
@@ -282,6 +273,28 @@ void FixNVTRegulated::reset_dt()
 {
   dtv = 0.5 * update->dt;
   dtf = 0.5 * update->dt * force->ftm2v;
+}
+
+/* ---------------------------------------------------------------------- */
+
+void FixNVTRegulated::convert_velocities()
+{
+  double **v = atom->v;
+  double *rmass = atom->rmass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      double mi = rmass ? rmass[i] : mass[type[i]];
+      for (int k = 0; k < 3; k++)
+        p[i][k] = mi*v[i][k];
+    }
+
+  end_of_step();
 }
 
 /* ----------------------------------------------------------------------
