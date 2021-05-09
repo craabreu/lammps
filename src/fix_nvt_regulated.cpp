@@ -288,10 +288,10 @@ void FixNVTRegulated::end_of_step()
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double ci = c[i];
-      v[i][0] = ci*tanh(ps[i][0]);
-      v[i][1] = ci*tanh(ps[i][1]);
-      v[i][2] = ci*tanh(ps[i][2]);
+      double vfacci = vfactor*c[i];
+      v[i][0] = vfacci*tanh(ps[i][0]);
+      v[i][1] = vfacci*tanh(ps[i][1]);
+      v[i][2] = vfacci*tanh(ps[i][2]);
     }
 }
 
