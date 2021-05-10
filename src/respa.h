@@ -38,6 +38,7 @@ class Respa : public Integrate {
   int level_bond, level_angle, level_dihedral;    // level to compute forces at
   int level_improper, level_pair, level_kspace;
   int level_inner, level_middle, level_outer;
+  int level_neighbor;
 
   int nhybrid_styles;     // number of hybrid pair styles
   int *hybrid_level;      // level to compute pair hybrid sub-style at
