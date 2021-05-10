@@ -69,6 +69,7 @@ Respa::Respa(LAMMPS *lmp, int narg, char **arg) :
   level_bond = level_angle = level_dihedral = level_improper = -1;
   level_pair = level_kspace = -1;
   level_inner = level_middle = level_outer = -1;
+  level_neighbor = nlevels-1;
 
   // defaults for hybrid pair styles
 
@@ -134,6 +135,10 @@ Respa::Respa(LAMMPS *lmp, int narg, char **arg) :
         hybrid_level[i] = utils::inumeric(FLERR,arg[iarg],false,lmp)-1;
       }
       ++iarg;
+    } else if (strcmp(arg[iarg],"neighbor") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal run_style respa command");
+      level_neighbor = utils::inumeric(FLERR,arg[iarg+1],false,lmp) - 1;
+      iarg += 2;
     } else error->all(FLERR,"Illegal run_style respa command");
   }
 
@@ -160,6 +165,10 @@ Respa::Respa(LAMMPS *lmp, int narg, char **arg) :
                                || level_middle >= 0 || level_outer >= 0))
     error->all(FLERR,"Cannot set respa hybrid and "
                "any of pair/inner/middle/outer");
+
+  // cannot check neighbor list at level 0:
+  if (level_neighbor <= 0)
+    error->all(FLERR,"Must set respa neighbor > 1");
 
   // set defaults if user did not specify level
   // bond to innermost level
@@ -207,6 +216,7 @@ Respa::Respa(LAMMPS *lmp, int narg, char **arg) :
       for (int j=0; j < nhybrid_styles; j++)
         if (hybrid_level[j] == i) mesg += fmt::format(" hybrid-{}",j+1);
       if (level_kspace == i)    mesg += " kspace";
+      if (level_neighbor == i)    mesg += " neighbor";
       mesg += "\n";
     }
     utils::logmesg(lmp,mesg);
@@ -614,7 +624,7 @@ void Respa::recurse(int ilevel)
     // at innermost level, communicate
     // at middle levels, do nothing
 
-    if (ilevel == nlevels-1) {
+    if (ilevel == level_neighbor) {
       int nflag = neighbor->decide();
       if (nflag) {
         if (modify->n_pre_exchange) {
