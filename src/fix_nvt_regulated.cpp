@@ -35,17 +35,15 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
   if (narg < 7)
     error->all(FLERR,"Illegal fix nvt/regulated command");
 
-  // fix ID group nvt/regulated t_start t_stop t_damp gamma seed
-
   dynamic_group_allow = 1;
   time_integrate = 1;
 
   temp = utils::numeric(FLERR, arg[3], false, lmp);
-  tau = utils::numeric(FLERR, arg[4], false, lmp);
+  double t_period = utils::numeric(FLERR, arg[4], false, lmp);
   gamma = utils::numeric(FLERR, arg[5], false, lmp);
   seed = utils::inumeric(FLERR, arg[6], false, lmp);
 
-  if (tau <= 0.0) error->all(FLERR,"Fix nvt/regulated characteristic time must be > 0.0");
+  if (t_period <= 0.0) error->all(FLERR,"Fix nvt/regulated characteristic time must be > 0.0");
   if (gamma <= 0.0) error->all(FLERR,"Fix nvt/regulated friction coefficient must be > 0.0");
   if (seed <= 0) error->all(FLERR,"Fix nvt/regulated seed must be > 0");
 
@@ -86,8 +84,9 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
   grow_arrays(atom->nmax);
   atom->add_callback(Atom::GROW);
 
+  tausq = n*t_period*t_period;
+  omega = 1.0/sqrt(tausq);
   kT = force->boltz*temp/force->mvv2e;
-  Q_eta = n*kT*tau*tau;
   np1 = n + 1;
   vfactor = sqrt(np1/n);
 }
@@ -125,14 +124,13 @@ void FixNVTRegulated::init()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  double stdev = 1.0/(sqrt(n)*tau);
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double mi = rmass ? rmass[i] : mass[type[i]];
       c[i] = sqrt(n*kT/mi);
       pscale[i] = 1.0/(mi*c[i]);
       for (int k = 0; k < 3; k++) {
-        v_eta[i][k] = stdev*random->gaussian();
+        v_eta[i][k] = omega*random->gaussian();
         if (deterministic_flag) eta[i][k] = 0.0;
       }
     }
@@ -169,7 +167,9 @@ void FixNVTRegulated::initial_integrate(int /*vflag*/)
 {
   double dtfi, dtvci, vs0, vs1, vs2;
   double dts = 2.0*dtv;
-  double dte = dtv*kT/Q_eta;
+  double dte = dtv*omega*omega;
+  double a = exp(-dts*gamma);
+  double b = omega*sqrt(1.0 - a*a);
 
   // update v and x of atoms in group
 
@@ -201,27 +201,39 @@ void FixNVTRegulated::initial_integrate(int /*vflag*/)
       v_eta[i][2] += dte*(np1*vs2*vs2 - 1.0);
 
       if (deterministic_flag) {
+        eta[i][0] += dtv*(1.0 - vs0*vs0)*v_eta[i][0];
+        eta[i][1] += dtv*(1.0 - vs1*vs1)*v_eta[i][1];
+        eta[i][2] += dtv*(1.0 - vs2*vs2)*v_eta[i][2];
+
         ps[i][0] = asinh(sinh(ps[i][0])*exp(-dts*v_eta[i][0]));
         ps[i][1] = asinh(sinh(ps[i][1])*exp(-dts*v_eta[i][1]));
         ps[i][2] = asinh(sinh(ps[i][2])*exp(-dts*v_eta[i][2]));
 
-        eta[i][0] += dts*(1.0 - vs0*vs0)*v_eta[i][0];
-        eta[i][1] += dts*(1.0 - vs1*vs1)*v_eta[i][1];
-        eta[i][2] += dts*(1.0 - vs2*vs2)*v_eta[i][2];
+        vs0 = tanh(ps[i][0]);
+        vs1 = tanh(ps[i][1]);
+        vs2 = tanh(ps[i][2]);
+
+        eta[i][0] += dtv*(1.0 - vs0*vs0)*v_eta[i][0];
+        eta[i][1] += dtv*(1.0 - vs1*vs1)*v_eta[i][1];
+        eta[i][2] += dtv*(1.0 - vs2*vs2)*v_eta[i][2];
       }
       else {
         ps[i][0] = sinh(ps[i][0])*exp(-dtv*v_eta[i][0]);
         ps[i][1] = sinh(ps[i][1])*exp(-dtv*v_eta[i][1]);
         ps[i][2] = sinh(ps[i][2])*exp(-dtv*v_eta[i][2]);
 
+        v_eta[i][0] = a*v_eta[i][0] + b*random->gaussian();
+        v_eta[i][1] = a*v_eta[i][1] + b*random->gaussian();
+        v_eta[i][2] = a*v_eta[i][2] + b*random->gaussian();
+
         ps[i][0] = asinh(ps[i][0]*exp(-dtv*v_eta[i][0]));
         ps[i][1] = asinh(ps[i][1]*exp(-dtv*v_eta[i][1]));
         ps[i][2] = asinh(ps[i][2]*exp(-dtv*v_eta[i][2]));
-      }
 
-      vs0 = tanh(ps[i][0]);
-      vs1 = tanh(ps[i][1]);
-      vs2 = tanh(ps[i][2]);
+        vs0 = tanh(ps[i][0]);
+        vs1 = tanh(ps[i][1]);
+        vs2 = tanh(ps[i][2]);
+      }
 
       v_eta[i][0] += dte*(np1*vs0*vs0 - 1.0);
       v_eta[i][1] += dte*(np1*vs1*vs1 - 1.0);
@@ -317,10 +329,7 @@ double FixNVTRegulated::compute_scalar()
       if (deterministic_flag) pe_eta += eta[i][0] + eta[i][1] + eta[i][2];
     }
 
-  energy = force->mvv2e*(n*kT*ke_reg - 0.5*ke_std
-     + kT*pe_eta
-     + 0.5*Q_eta*ke_eta
-   );
+  energy = force->mvv2e*(n*kT*ke_reg - 0.5*ke_std + kT*(pe_eta + 0.5*tausq*ke_eta));
   MPI_Allreduce(&energy, &total, 1, MPI_DOUBLE, MPI_SUM, world);
   return total;
 }

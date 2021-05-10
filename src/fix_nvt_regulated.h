@@ -57,7 +57,7 @@ class FixNVTRegulated : public Fix {
   double dtv,dtf;
   double *step_respa;
 
-  double temp, tau, gamma;
+  double temp, tausq, gamma;
 
   double n;
   int deterministic_flag;
@@ -66,7 +66,7 @@ class FixNVTRegulated : public Fix {
   int seed;
 
   double *c, *pscale, **ps, **eta, **v_eta;
-  double kT, np1, Q_eta, vfactor;
+  double omega, kT, np1, vfactor;
 };
 
 }
