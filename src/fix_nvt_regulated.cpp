@@ -48,7 +48,7 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
   if (seed <= 0) error->all(FLERR,"Fix nvt/regulated seed must be > 0");
 
   n = 1.0;
-  deterministic_flag = 1;  // replace later on by 0 (after implementing stochastic part)
+  deterministic_flag = 0;
 
   int iarg = 7;
   while (iarg < narg) {
