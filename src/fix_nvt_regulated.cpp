@@ -84,7 +84,7 @@ FixNVTRegulated::FixNVTRegulated(LAMMPS *lmp, int narg, char **arg) :
   grow_arrays(atom->nmax);
   atom->add_callback(Atom::GROW);
 
-  tausq = n*t_period*t_period;
+  tausq = t_period*t_period;
   omega = 1.0/sqrt(tausq);
   kT = force->boltz*temp/force->mvv2e;
   np1 = n + 1;
