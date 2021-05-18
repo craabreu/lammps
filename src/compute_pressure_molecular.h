@@ -35,7 +35,7 @@ class ComputePressureMolecular : public Compute {
 
   virtual void compute_com();
 
-  int nmols;
+  int nmolecules;
   double **rcm, **vcm, *mtotal;
 
   int dof;

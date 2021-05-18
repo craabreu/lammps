@@ -94,11 +94,11 @@ void ComputePressureMolecular::init()
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit)
       maxmol = MAX(molecule[i], maxmol);
-  MPI_Allreduce(&maxmol, &nmols, 1, MPI_INT, MPI_MAX, world);
+  MPI_Allreduce(&maxmol, &nmolecules, 1, MPI_INT, MPI_MAX, world);
 
-  allocate(nmols);
+  allocate(nmolecules);
 
-  dof = dimension*nmols;
+  dof = dimension*nmolecules;
 
   // detect contributions to virial
   // vptr points to all virial[6] contributions
@@ -163,7 +163,7 @@ double ComputePressureMolecular::compute_scalar()
 
   double two_ke = 0.0;
   if (dimension == 3) {
-    for (int j = 0; j < nmols; j++)
+    for (int j = 0; j < nmolecules; j++)
       two_ke += mtotal[j]*(vcm[j][0]*vcm[j][0] + vcm[j][1]*vcm[j][1] + vcm[j][2]*vcm[j][2]);
     two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
@@ -171,7 +171,7 @@ double ComputePressureMolecular::compute_scalar()
     scalar = (two_ke + virial[0] + virial[1] + virial[2]) / 3.0 * inv_volume * nktv2p;
   }
   else {
-    for (int j = 0; j < nmols; j++)
+    for (int j = 0; j < nmolecules; j++)
       two_ke += mtotal[j]*(vcm[j][0]*vcm[j][0] + vcm[j][1]*vcm[j][1]);
     two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd);
@@ -202,7 +202,7 @@ void ComputePressureMolecular::compute_vector()
 
   for (int i = 0; i < 6; i++)
     ke_tensor[i] = 0.0;
-  for (int i = 0; i < nmols; i++) {
+  for (int i = 0; i < nmolecules; i++) {
     double massone = mtotal[i];
     ke_tensor[0] += vcm[i][0]*vcm[i][0] * massone;
     ke_tensor[1] += vcm[i][1]*vcm[i][1] * massone;
@@ -297,12 +297,12 @@ void ComputePressureMolecular::compute_com()
 
   // zero local per-molecule values
 
-  for (int i = 0; i < nmols; i++) {
+  for (int i = 0; i < nmolecules; i++) {
     mrproc[i][0] = mrproc[i][1] = mrproc[i][2] = 0.0;
     mvproc[i][0] = mvproc[i][1] = mvproc[i][2] = 0.0;
   }
   if (massneed)
-    for (int i = 0; i < nmols; i++)
+    for (int i = 0; i < nmolecules; i++)
       mproc[i] = 0.0;
 
   // compute COM for each molecule
@@ -333,11 +333,11 @@ void ComputePressureMolecular::compute_com()
         mproc[index] += massone;
     }
 
-  MPI_Allreduce(&mrproc[0][0], &rcm[0][0], 3*nmols, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&mvproc[0][0], &vcm[0][0], 3*nmols, MPI_DOUBLE, MPI_SUM, world);
-  if (massneed) MPI_Allreduce(mproc, mtotal, nmols, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mrproc[0][0], &rcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mvproc[0][0], &vcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  if (massneed) MPI_Allreduce(mproc, mtotal, nmolecules, MPI_DOUBLE, MPI_SUM, world);
 
-  for (int i = 0; i < nmols; i++) {
+  for (int i = 0; i < nmolecules; i++) {
     rcm[i][0] /= mtotal[i];
     rcm[i][1] /= mtotal[i];
     rcm[i][2] /= mtotal[i];
@@ -347,7 +347,7 @@ void ComputePressureMolecular::compute_com()
   }
 }
 
-void ComputePressureMolecular::allocate(int nmols)
+void ComputePressureMolecular::allocate(int nmolecules)
 {
   memory->destroy(mproc);
   memory->destroy(mtotal);
@@ -356,12 +356,12 @@ void ComputePressureMolecular::allocate(int nmols)
   memory->destroy(mvproc);
   memory->destroy(vcm);
 
-  memory->create(mproc,nmols,"pressure/molecular:mproc");
-  memory->create(mtotal,nmols,"pressure/molecular:mtotal");
-  memory->create(mrproc,nmols,3,"pressure/molecular:mrproc");
-  memory->create(rcm,nmols,3,"pressure/molecular:rcm");
-  memory->create(mvproc,nmols,3,"pressure/molecular:mvproc");
-  memory->create(vcm,nmols,3,"pressure/molecular:vcm");
+  memory->create(mproc,nmolecules,"pressure/molecular:mproc");
+  memory->create(mtotal,nmolecules,"pressure/molecular:mtotal");
+  memory->create(mrproc,nmolecules,3,"pressure/molecular:mrproc");
+  memory->create(rcm,nmolecules,3,"pressure/molecular:rcm");
+  memory->create(mvproc,nmolecules,3,"pressure/molecular:mvproc");
+  memory->create(vcm,nmolecules,3,"pressure/molecular:vcm");
 }
 
 /* ----------------------------------------------------------------------
@@ -370,7 +370,7 @@ void ComputePressureMolecular::allocate(int nmols)
 
 double ComputePressureMolecular::memory_usage()
 {
-  double bytes = (bigint) nmols * 2 * sizeof(double);
-  bytes += (double) nmols * 4 * 3 * sizeof(double);
+  double bytes = (bigint) nmolecules * 2 * sizeof(double);
+  bytes += (double) nmolecules * 4 * 3 * sizeof(double);
   return bytes;
 }
