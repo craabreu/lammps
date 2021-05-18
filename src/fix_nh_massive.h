@@ -94,11 +94,7 @@ class FixNHMassive : public Fix {
   int tcomputeflag, pcomputeflag;    // 1 = compute was created by fix
                                      // 0 = created externally
 
-  double *etap;    // chain thermostat for barostat
-  double *etap_dot;
-  double *etap_dotdot;
-  double *etap_mass;
-  int mpchain;    // length of chain
+  double etap, etap_dot, etap_mass;  // chain thermostat for barostat
 
   int pdim;             // number of barostatted dims
   double p_freq_max;    // maximum barostat frequency

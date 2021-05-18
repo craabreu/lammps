@@ -66,10 +66,7 @@ enum{ISO,ANISO,TRICLINIC};
 FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(nullptr), id_dilate(nullptr), irregular(nullptr),
-  id_temp(nullptr), id_press(nullptr),
-  etap(nullptr), etap_dot(nullptr), etap_dotdot(nullptr),
-  etap_mass(nullptr),
-  eta(nullptr), v_eta(nullptr)
+  id_temp(nullptr), id_press(nullptr), eta(nullptr), v_eta(nullptr)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -89,7 +86,6 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   drag = 0.0;
   allremap = 1;
   id_dilate = nullptr;
-  mpchain = 3;
   nc_tchain = nc_pchain = 1;
   deviatoric_flag = 0;
   nreset_h0 = 0;
@@ -296,11 +292,6 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"pchain") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      mpchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
-      if (mpchain < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      iarg += 2;
     } else if (strcmp(arg[iarg],"tloop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       nc_tchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
@@ -554,22 +545,12 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
     else if (pstyle == ANISO) size_vector += 2*2*3;
     else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
-    if (mpchain) {
-      int ich;
-      etap = new double[mpchain];
 
-      // add one extra dummy thermostat, set to zero
+    // add one extra dummy thermostat, set to zero
 
-      etap_dot = new double[mpchain+1];
-      etap_dot[mpchain] = 0.0;
-      etap_dotdot = new double[mpchain];
-      for (ich = 0; ich < mpchain; ich++) {
-        etap[ich] = etap_dot[ich] =
-          etap_dotdot[ich] = 0.0;
-      }
-      etap_mass = new double[mpchain];
-      size_vector += 2*2*mpchain;
-    }
+    etap = 0.0;
+    etap_dot = 0.0;
+    size_vector += 4;
 
     if (deviatoric_flag) size_vector += 1;
   }
@@ -613,12 +594,6 @@ FixNHMassive::~FixNHMassive()
       modify->delete_compute(id_press);
     }
     delete [] id_press;
-    if (mpchain) {
-      delete [] etap;
-      delete [] etap_dot;
-      delete [] etap_dotdot;
-      delete [] etap_mass;
-    }
   }
 }
 
@@ -820,17 +795,9 @@ void FixNHMassive::setup(int /*vflag*/)
         if (p_flag[i]) omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
     }
 
-  // masses and initial forces on barostat thermostat variables
+    // mass of barostat thermostat variable
 
-    if (mpchain) {
-      etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
-        etap_mass[ich] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (int ich = 1; ich < mpchain; ich++)
-        etap_dotdot[ich] =
-          (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] -
-           boltz * t_target) / etap_mass[ich];
-    }
+    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
   }
 }
 
@@ -842,7 +809,7 @@ void FixNHMassive::initial_integrate(int /*vflag*/)
 {
   // update eta_press_dot
 
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  if (pstat_flag) nhc_press_integrate();
 
   if (tstat_flag) {
     compute_temp_target();
@@ -911,7 +878,7 @@ void FixNHMassive::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloo
 
     // update eta_press_dot
 
-    if (pstat_flag && mpchain) nhc_press_integrate();
+    if (pstat_flag) nhc_press_integrate();
 
     if (tstat_flag) {
       compute_temp_target();
@@ -1002,7 +969,7 @@ void FixNHMassive::end_of_step()
   if (tstat_flag)
     nhc_temp_integrate();
 
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  if (pstat_flag) nhc_press_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1299,7 +1266,7 @@ int FixNHMassive::size_restart_global()
     // ADD THERMOSTAT VARIABLES HERE
   }
   if (pstat_flag) {
-    nsize += 16 + 2*mpchain;
+    nsize += 16 + 2;
     if (deviatoric_flag) nsize += 6;
   }
 
@@ -1335,13 +1302,8 @@ int FixNHMassive::pack_restart_data(double *list)
     list[n++] = omega_dot[5];
     list[n++] = vol0;
     list[n++] = t0;
-    list[n++] = mpchain;
-    if (mpchain) {
-      for (int ich = 0; ich < mpchain; ich++)
-        list[n++] = etap[ich];
-      for (int ich = 0; ich < mpchain; ich++)
-        list[n++] = etap_dot[ich];
-    }
+    list[n++] = etap;
+    list[n++] = etap_dot;
 
     list[n++] = deviatoric_flag;
     if (deviatoric_flag) {
@@ -1385,13 +1347,8 @@ void FixNHMassive::restart(char *buf)
     omega_dot[5] = list[n++];
     vol0 = list[n++];
     t0 = list[n++];
-    int m = static_cast<int> (list[n++]);
-    if (pstat_flag && m == mpchain) {
-      for (int ich = 0; ich < mpchain; ich++)
-        etap[ich] = list[n++];
-      for (int ich = 0; ich < mpchain; ich++)
-        etap_dot[ich] = list[n++];
-    } else n+=2*m;
+    etap = list[n++];
+    etap_dot = list[n++];
     flag = static_cast<int> (list[n++]);
     if (flag) {
       h0_inv[0] = list[n++];
@@ -1525,12 +1482,7 @@ double FixNHMassive::compute_scalar()
 
     // extra contributions from thermostat chain for barostat
 
-    if (mpchain) {
-      energy += lkt_press * etap[0] + 0.5*etap_mass[0]*etap_dot[0]*etap_dot[0];
-      for (ich = 1; ich < mpchain; ich++)
-        energy += kt * etap[ich] +
-          0.5*etap_mass[ich]*etap_dot[ich]*etap_dot[ich];
-    }
+    energy += lkt_press * etap + 0.5*etap_mass*etap_dot*etap_dot;
 
     // extra contribution from strain energy
 
@@ -1543,8 +1495,8 @@ double FixNHMassive::compute_scalar()
 /* ----------------------------------------------------------------------
    return a single element of the following vectors, in this order:
       omega[ndof], omega_dot[ndof]
-      etap[pchain], etap_dot[pchain], PE_eta[tchain], KE_eta_dot[tchain]
-      PE_omega[ndof], KE_omega_dot[ndof], PE_etap[pchain], KE_etap_dot[pchain]
+      etap, etap_dot, PE_eta, KE_eta_dot
+      PE_omega[ndof], KE_omega_dot[ndof], PE_etap[, KE_etap_dot
       PE_strain[1]
   if no thermostat exists, related quantities are omitted from the list
   if no barostat exists, related quantities are omitted from the list
@@ -1588,14 +1540,10 @@ double FixNHMassive::compute_vector(int n)
       n -= ilen;
     }
 
-    if (mpchain) {
-      ilen = mpchain;
-      if (n < ilen) return etap[n];
-      n -= ilen;
-      ilen = mpchain;
-      if (n < ilen) return etap_dot[n];
-      n -= ilen;
-    }
+    if (n == 0) return etap;
+    n--;
+    if (n == 0) return etap_dot;
+    n--;
   }
 
   double volume;
@@ -1659,30 +1607,14 @@ double FixNHMassive::compute_vector(int n)
       n -= ilen;
     }
 
-    if (mpchain) {
-      ilen = mpchain;
-      if (n < ilen) {
-        ich = n;
-        if (ich == 0) return lkt_press * etap[0];
-        else return kt * etap[ich];
-      }
-      n -= ilen;
-      ilen = mpchain;
-      if (n < ilen) {
-        ich = n;
-        if (ich == 0)
-          return 0.5*etap_mass[0]*etap_dot[0]*etap_dot[0];
-        else
-          return 0.5*etap_mass[ich]*etap_dot[ich]*etap_dot[ich];
-      }
-      n -= ilen;
-    }
+    if (n == 0) return lkt_press * etap;
+    n--;
+    if (n == 0) return 0.5*etap_mass*etap_dot*etap_dot;
+    n--;
 
     if (deviatoric_flag) {
-      ilen = 1;
-      if (n < ilen)
-        return compute_strain_energy();
-      n -= ilen;
+      if (n == 0) return compute_strain_energy();
+      n--;
     }
   }
 
@@ -1732,8 +1664,6 @@ void *FixNHMassive::extract(const char *str, int &dim)
     return &t_start;
   } else if (tstat_flag && strcmp(str,"t_stop") == 0) {
     return &t_stop;
-  } else if (pstat_flag && strcmp(str,"mpchain") == 0) {
-    return &mpchain;
   }
   dim=1;
   if (pstat_flag && strcmp(str,"etap") == 0) {
@@ -1825,17 +1755,8 @@ void FixNHMassive::nhc_press_integrate()
     }
   }
 
-  if (etap_mass_flag) {
-    if (mpchain) {
-      etap_mass[0] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (ich = 1; ich < mpchain; ich++)
-        etap_mass[ich] = boltz * t_target / (p_freq_max*p_freq_max);
-      for (ich = 1; ich < mpchain; ich++)
-        etap_dotdot[ich] =
-          (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] -
-           boltz * t_target) / etap_mass[ich];
-    }
-  }
+  if (etap_mass_flag)
+    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
 
   kecurrent = 0.0;
   pdof = 0;
@@ -1853,31 +1774,19 @@ void FixNHMassive::nhc_press_integrate()
       }
   }
 
-  if (pstyle == ISO) lkt_press = kt;
-  else lkt_press = pdof * kt;
-  etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
+  if (pstyle == ISO)
+    lkt_press = kt;
+  else
+    lkt_press = pdof * kt;
 
   double ncfac = 1.0/nc_pchain;
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
-    for (ich = mpchain-1; ich > 0; ich--) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
-      etap_dot[ich] *= expfac;
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
-      etap_dot[ich] *= pdrag_factor;
-      etap_dot[ich] *= expfac;
-    }
+    etap_dot += ncfac*dt4*(kecurrent - lkt_press)/etap_mass;
 
-    expfac = exp(-ncfac*dt8*etap_dot[1]);
-    etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
-    etap_dot[0] *= pdrag_factor;
-    etap_dot[0] *= expfac;
+    etap += ncfac*dthalf*etap_dot;
 
-    for (ich = 0; ich < mpchain; ich++)
-      etap[ich] += ncfac*dthalf*etap_dot[ich];
-
-    factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+    factor_etap = exp(-ncfac*dthalf*etap_dot);
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
 
@@ -1895,21 +1804,7 @@ void FixNHMassive::nhc_press_integrate()
         if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
     }
 
-    etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
-
-    etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
-    etap_dot[0] *= expfac;
-
-    for (ich = 1; ich < mpchain; ich++) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
-      etap_dot[ich] *= expfac;
-      etap_dotdot[ich] =
-        (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] - boltz*t_target) /
-        etap_mass[ich];
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
-      etap_dot[ich] *= expfac;
-    }
+    etap_dot += ncfac*dt4*(kecurrent - lkt_press)/etap_mass;
   }
 }
 
