@@ -58,6 +58,7 @@ using namespace FixConst;
 
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
+enum{XO_RESPA, MIDDLE_RESPA};
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -98,7 +99,7 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   p_temp_flag = 0;
 
   deterministic_flag = 1;
-  global_tstat_flag = 0;
+  respa_splitting = MIDDLE_RESPA;
 
   pcomputeflag = 0;
   id_press = nullptr;
@@ -343,6 +344,11 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       fixedpoint[1] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
       fixedpoint[2] = utils::numeric(FLERR,arg[iarg+3],false,lmp);
       iarg += 4;
+    } else if (strcmp(arg[iarg],"respa_splitting") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
+      else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
+      iarg += 2;
 
     // disc keyword is also parsed in fix/nh/sphere
 
@@ -794,9 +800,9 @@ void FixNHMassive::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) nhc_press_integrate();
 
-  if (tstat_flag) {
+  if (tstat_flag && respa_splitting == XO_RESPA) {
     compute_temp_target();
-    nhc_temp_integrate();
+    nhc_temp_integrate(dthalf);
   }
 
   if (pstat_flag) {
@@ -819,7 +825,14 @@ void FixNHMassive::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) change_box();
 
-  nve_x();
+  if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+    nve_x(dthalf);
+    compute_temp_target();
+    nhc_temp_integrate(dtv);
+    nve_x(dthalf);
+  }
+  else
+    nve_x(dtv);
 
   // remap simulation box by 1/2 step
   // redo KSpace coeffs since volume has changed
@@ -859,9 +872,9 @@ void FixNHMassive::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloo
 
     if (pstat_flag) nhc_press_integrate();
 
-    if (tstat_flag) {
+    if (tstat_flag && respa_splitting == XO_RESPA) {
       compute_temp_target();
-      nhc_temp_integrate();
+      nhc_temp_integrate(dthalf);
     }
 
     // recompute pressure to account for change in KE
@@ -891,7 +904,14 @@ void FixNHMassive::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloo
 
   if (ilevel == 0) {
     if (pstat_flag) change_box();
-    nve_x();
+    if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+      nve_x(dthalf);
+      compute_temp_target();
+      nhc_temp_integrate(dtv);
+      nve_x(dthalf);
+    }
+    else
+      nve_x(dtv);
     if (pstat_flag) change_box();
   }
 
@@ -935,8 +955,8 @@ void FixNHMassive::end_of_step()
 
   // update eta_press_dot
 
-  if (tstat_flag)
-    nhc_temp_integrate();
+  if (tstat_flag && respa_splitting == XO_RESPA)
+    nhc_temp_integrate(dthalf);
 
   if (pstat_flag) nhc_press_integrate();
 }
@@ -1622,7 +1642,7 @@ void *FixNHMassive::extract(const char *str, int &dim)
    perform half-step update of chain thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixNHMassive::nhc_temp_integrate()
+void FixNHMassive::nhc_temp_integrate(double dt)
 {
   double **v = atom->v;
   double *rmass = atom->rmass;
@@ -1639,8 +1659,8 @@ void FixNHMassive::nhc_temp_integrate()
   if (eta_mass_flag)
     Q_eta = kT / (t_freq*t_freq);
 
-  double dt2loop = dthalf/nc_tchain;
-  double dt4loop = dt4/(nc_tchain*Q_eta);
+  double dt2loop = dt/nc_tchain;
+  double dt4loop = 0.5*dt/(nc_tchain*Q_eta);
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double m = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
@@ -1787,7 +1807,7 @@ void FixNHMassive::nve_v()
    perform full-step update of positions
 -----------------------------------------------------------------------*/
 
-void FixNHMassive::nve_x()
+void FixNHMassive::nve_x(double dtv)
 {
   double **x = atom->x;
   double **v = atom->v;

@@ -69,7 +69,6 @@ class FixNHMassive : public Fix {
   double p_current[6];
 
   int deterministic_flag;
-  int global_tstat_flag;
   double **eta, **v_eta, Q_eta;
 
   double drag, tdrag_factor;     // drag factor on particle thermostat
@@ -86,6 +85,7 @@ class FixNHMassive : public Fix {
 
   int nlevels_respa;
   double *step_respa;
+  int respa_splitting;
 
   char *id_press;
   class ComputePressureMolecular *pressure;
@@ -124,10 +124,10 @@ class FixNHMassive : public Fix {
 
   void couple();
   virtual void change_box();
-  void nhc_temp_integrate();
+  void nhc_temp_integrate(double);
   void nhc_press_integrate();
 
-  virtual void nve_x();    // may be overwritten by child classes
+  virtual void nve_x(double);    // may be overwritten by child classes
   virtual void nve_v();
   virtual void compute_temp_target();
   virtual int size_restart_global();
