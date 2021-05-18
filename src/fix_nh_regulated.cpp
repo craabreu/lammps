@@ -58,7 +58,7 @@ using namespace FixConst;
 
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
-enum{XO_RESPA, MIDDLE_RESPA};
+enum{XO_RESPA,MIDDLE_RESPA};
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -67,7 +67,7 @@ enum{XO_RESPA, MIDDLE_RESPA};
 FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(nullptr), id_dilate(nullptr), irregular(nullptr),
-  id_press(nullptr), eta(nullptr), v_eta(nullptr)
+  id_press(nullptr), eta(nullptr), v_eta(nullptr), vmax(nullptr)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -99,6 +99,7 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   p_temp_flag = 0;
 
   deterministic_flag = 1;
+  regulation_parameter = 1;
   respa_splitting = MIDDLE_RESPA;
 
   pcomputeflag = 0;
@@ -348,6 +349,11 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
       else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"regulation") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      regulation_parameter = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+      if (regulation_parameter <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
 
     // disc keyword is also parsed in fix/nh/sphere
@@ -716,6 +722,20 @@ void FixNHRegulated::init()
     for (int i = 0; i < modify->nfix; i++)
       if (modify->fix[i]->rigid_flag) rfix[nrigid++] = i;
   }
+
+  // store maximum speed of each atom
+
+  double *rmass = atom->rmass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      double massone = rmass ? rmass[i] : mass[type[i]];
+      vmax[i] = sqrt(regulation_parameter*boltz*t_target/massone);
+    }
 }
 
 /* ----------------------------------------------------------------------
@@ -1663,12 +1683,13 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
   double dt4loop = 0.5*dt/(nc_tchain*Q_eta);
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double m = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
+      double cinv = 1.0/vmax[i];
+      double mc = mvv2e*(rmass ? rmass[i] : mass[type[i]])*vmax[i];
       for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
-        v_eta[i][0] += (m*v[i][0]*v[i][0] - kT) * dt4loop;
-        v_eta[i][1] += (m*v[i][1]*v[i][1] - kT) * dt4loop;
-        v_eta[i][2] += (m*v[i][2]*v[i][2] - kT) * dt4loop;
+        v_eta[i][0] += (mc*v[i][0]*tanh(v[i][0]*cinv) - kT)*dt4loop;
+        v_eta[i][1] += (mc*v[i][1]*tanh(v[i][1]*cinv) - kT)*dt4loop;
+        v_eta[i][2] += (mc*v[i][2]*tanh(v[i][2]*cinv) - kT)*dt4loop;
 
         v[i][0] *= exp(-dt2loop*v_eta[i][0]);
         v[i][1] *= exp(-dt2loop*v_eta[i][1]);
@@ -1680,9 +1701,10 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
           eta[i][2] += dt2loop*v_eta[i][2];
         }
 
-        v_eta[i][0] += (m*v[i][0]*v[i][0] - kT) * dt4loop;
-        v_eta[i][1] += (m*v[i][1]*v[i][1] - kT) * dt4loop;
-        v_eta[i][2] += (m*v[i][2]*v[i][2] - kT) * dt4loop;
+        v_eta[i][0] += (mc*v[i][0]*tanh(v[i][0]*cinv) - kT)*dt4loop;
+        v_eta[i][1] += (mc*v[i][1]*tanh(v[i][1]*cinv) - kT)*dt4loop;
+        v_eta[i][2] += (mc*v[i][2]*tanh(v[i][2]*cinv) - kT)*dt4loop;
+
       }
     }
 }
@@ -1817,11 +1839,13 @@ void FixNHRegulated::nve_x(double dtv)
 
   // x update by full step only for atoms in group
 
+  double c;
   for (int i = 0; i < nlocal; i++) {
     if (mask[i] & groupbit) {
-      x[i][0] += dtv * v[i][0];
-      x[i][1] += dtv * v[i][1];
-      x[i][2] += dtv * v[i][2];
+      c = vmax[i];
+      x[i][0] += dtv * c * tanh(v[i][0]/c);
+      x[i][1] += dtv * c * tanh(v[i][1]/c);
+      x[i][2] += dtv * c * tanh(v[i][2]/c);
     }
   }
 }
@@ -2123,7 +2147,7 @@ double FixNHRegulated::memory_usage()
   double bytes = 0.0;
   if (irregular)
     bytes += irregular->memory_usage();
-  bytes += (double)atom->nmax*8*sizeof(double);
+  bytes += (double)atom->nmax*4*sizeof(double);
   if (deterministic_flag)
     bytes += atom->nmax*3*sizeof(double);
   return bytes;
@@ -2138,6 +2162,7 @@ void FixNHRegulated::grow_arrays(int nmax)
   memory->grow(v_eta, nmax, 3, "fix_nh_massive:v_eta");
   if (deterministic_flag)
     memory->grow(eta, nmax, 3, "fix_nh_massive:eta");
+  memory->grow(vmax, nmax, "fix_nh_massive:vmax");
 }
 
 /* ----------------------------------------------------------------------
@@ -2154,6 +2179,7 @@ void FixNHRegulated::copy_arrays(int i, int j, int /*delflag*/)
     eta[j][1] = eta[i][1];
     eta[j][2] = eta[i][2];
   }
+  vmax[j] = vmax[i];
 }
 
 /* ----------------------------------------------------------------------
@@ -2171,6 +2197,7 @@ int FixNHRegulated::pack_exchange(int i, double *buf)
     buf[n++] = eta[i][1];
     buf[n++] = eta[i][2];
   }
+  buf[n++] = vmax[i];
   return n;
 }
 
@@ -2189,5 +2216,6 @@ int FixNHRegulated::unpack_exchange(int nlocal, double *buf)
     eta[nlocal][1] = buf[n++];
     eta[nlocal][2] = buf[n++];
   }
+  vmax[nlocal] = buf[n++];
   return n;
 }

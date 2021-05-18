@@ -71,6 +71,9 @@ class FixNHRegulated : public Fix {
   int deterministic_flag;
   double **eta, **v_eta, Q_eta;
 
+  double regulation_parameter;
+  double *vmax;
+
   double drag, tdrag_factor;     // drag factor on particle thermostat
   double pdrag_factor;           // drag factor on barostat
   int kspace_flag;               // 1 if KSpace invoked, 0 if not

@@ -34,6 +34,8 @@ FixNPTRegulated::FixNPTRegulated(LAMMPS *lmp, int narg, char **arg) :
   // id = fix-ID + press, compute group = all
 
   id_press = utils::strdup(std::string(id) + "_press");
-  modify->add_compute(fmt::format("{} all pressure/molecular", id_press));
+  modify->add_compute(
+    fmt::format("{} all pressure/regulated {} {}", id_press, regulation_parameter, t_target)
+  );
   pcomputeflag = 1;
 }
