@@ -60,6 +60,8 @@ enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 enum{XO_RESPA,MIDDLE_RESPA};
 
+#define logcosh(x) (fabs(x) + log1p(exp(-2*fabs(x))) - log(2))
+
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
  ---------------------------------------------------------------------- */
@@ -1402,24 +1404,40 @@ double FixNHRegulated::compute_scalar()
 {
   int i;
   double volume;
-  double energy;
+  double energy, eproc;
   double kt = boltz * t_target;
   double lkt_press = 0.0;
-  int ich;
-  if (dimension == 3) volume = domain->xprd * domain->yprd * domain->zprd;
-  else volume = domain->xprd * domain->yprd;
 
-  energy = 0.0;
+  if (dimension == 3)
+    volume = domain->xprd * domain->yprd * domain->zprd;
+  else
+    volume = domain->xprd * domain->yprd;
 
-  // thermostat chain energy is massive-vertion of Eq. (2) in
-  // Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
+  energy = eproc = 0.0;
+
+  // add regulation kinetic energy and subtract conventional one
+
+  double **v = atom->v;
+  double *rmass = atom->rmass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup)
+    nlocal = atom->nfirst;
+  double ke = 0.0;
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      double imass = rmass ? rmass[i] : mass[type[i]];
+      eproc += logcosh(v[i][0]/vmax[i]) + logcosh(v[i][1]/vmax[i]) + logcosh(v[i][2]/vmax[i]);
+      ke = imass*(v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2]);
+    }
+  eproc = regulation_parameter * kt * eproc - ke;
+
+  // thermostat energy is a massive-thermostatting version of
+  // Eq. (2) in Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
 
   if (tstat_flag) {
-    int *type = atom->type;
-    int *mask = atom->mask;
-    int nlocal = atom->nlocal;
-    if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
     double sum_vsq = 0.0;
     double sum_eta = 0.0;
     for (int i = 0; i < nlocal; i++)
@@ -1428,9 +1446,10 @@ double FixNHRegulated::compute_scalar()
         if (deterministic_flag)
           sum_eta += eta[i][0] + eta[i][1] + eta[i][2];
       }
-    double eproc = kt*sum_eta + 0.5*Q_eta*sum_vsq;
-    MPI_Allreduce(&eproc, &energy, 1, MPI_DOUBLE, MPI_SUM, world);
+    eproc += kt*sum_eta + 0.5*Q_eta*sum_vsq;
   }
+
+  MPI_Allreduce(&eproc, &energy, 1, MPI_DOUBLE, MPI_SUM, world);
 
   // barostat energy is equivalent to Eq. (8) in
   // Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
@@ -1835,19 +1854,19 @@ void FixNHRegulated::nve_x(double dtv)
   double **v = atom->v;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+  if (igroup == atom->firstgroup)
+    nlocal = atom->nfirst;
 
   // x update by full step only for atoms in group
 
-  double c;
-  for (int i = 0; i < nlocal; i++) {
+  for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      c = vmax[i];
-      x[i][0] += dtv * c * tanh(v[i][0]/c);
-      x[i][1] += dtv * c * tanh(v[i][1]/c);
-      x[i][2] += dtv * c * tanh(v[i][2]/c);
+      double dtv_vmax = dtv*vmax[i];
+      double inv_vmax = 1.0/vmax[i];
+      x[i][0] += dtv_vmax*tanh(v[i][0]*inv_vmax);
+      x[i][1] += dtv_vmax*tanh(v[i][1]*inv_vmax);
+      x[i][2] += dtv_vmax*tanh(v[i][2]*inv_vmax);
     }
-  }
 }
 
 /* ----------------------------------------------------------------------
