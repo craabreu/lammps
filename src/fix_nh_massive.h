@@ -100,7 +100,6 @@ class FixNHMassive : public Fix {
   double *etap_mass;
   int mpchain;    // length of chain
 
-  int mtk_flag;         // 0 if using Hoover barostat
   int pdim;             // number of barostatted dims
   double p_freq_max;    // maximum barostat frequency
 
@@ -113,8 +112,6 @@ class FixNHMassive : public Fix {
   int deviatoric_flag;    // 0 if target stress tensor is hydrostatic
   double h0_inv[6];       // h_inv of reference (zero strain) box
   int nreset_h0;          // interval for resetting h0
-
-  double mtk_term1, mtk_term2;    // Martyna-Tobias-Klein corrections
 
   int eta_mass_flag;      // 1 if etag_mass updated, 0 if not.
   int omega_mass_flag;    // 1 if omega_mass updated, 0 if not.

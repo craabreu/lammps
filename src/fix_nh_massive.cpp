@@ -15,7 +15,7 @@
 /* ======================================================================
 
    TO DO LIST:
-     [ ] Check if mtk_term1 and mtk_term2 are correct with massive tstat
+     [x] Check if mtk_term1 and mtk_term2 are correct with massive tstat
      [ ] Check if pressure->compute_com() is unnecessary in some places
      [ ] Make it incompatible with RIGID BODIES
      [ ] Make it incompatible with TEMPERATURA BIAS
@@ -91,7 +91,6 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   id_dilate = nullptr;
   mpchain = 3;
   nc_tchain = nc_pchain = 1;
-  mtk_flag = 1;
   deviatoric_flag = 0;
   nreset_h0 = 0;
   eta_mass_flag = 1;
@@ -301,12 +300,6 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       mpchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
       if (mpchain < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      iarg += 2;
-    } else if (strcmp(arg[iarg],"mtk") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      if (strcmp(arg[iarg+1],"yes") == 0) mtk_flag = 1;
-      else if (strcmp(arg[iarg+1],"no") == 0) mtk_flag = 0;
-      else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
     } else if (strcmp(arg[iarg],"tloop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -1237,6 +1230,12 @@ void FixNHMassive::change_box()
     domain->lamda2x(rcm[imol], rcm[imol]);
 
   // Scale center-of-mass velocities
+
+  double mtk_term2 = 0.0;
+  for (int i = 0; i < 3; i++)
+    if (p_flag[i])
+      mtk_term2 += omega_dot[i];
+  if (pdim > 0) mtk_term2 /= pdim * pressure->nmolecules;
 
   double factor[3];
   factor[0] = exp(-dt4*(omega_dot[0]+mtk_term2));
@@ -2181,18 +2180,16 @@ void FixNHMassive::nh_omega_dot()
 
   if (deviatoric_flag) compute_deviatoric();
 
-  mtk_term1 = 0.0;
-  if (mtk_flag) {
-    if (pstyle == ISO) {
-      mtk_term1 = pressure->dof * boltz * pressure->temp;
-      mtk_term1 /= pdim * atom->natoms;
-    } else {
-      double *mvv_current = pressure->vector;
-      for (int i = 0; i < 3; i++)
-        if (p_flag[i])
-          mtk_term1 += mvv_current[i];
-      mtk_term1 /= pdim * atom->natoms;
-    }
+  double mtk_term1 = 0.0;
+  if (pstyle == ISO) {
+    mtk_term1 = pressure->dof * boltz * pressure->temp;
+    mtk_term1 /= pdim * pressure->nmolecules;
+  } else {
+    double *mvv_current = pressure->vector;
+    for (int i = 0; i < 3; i++)
+      if (p_flag[i])
+        mtk_term1 += mvv_current[i];
+    mtk_term1 /= pdim * pressure->nmolecules;
   }
 
   for (int i = 0; i < 3; i++)
@@ -2203,14 +2200,6 @@ void FixNHMassive::nh_omega_dot()
       omega_dot[i] += f_omega*dthalf;
       omega_dot[i] *= pdrag_factor;
     }
-
-  mtk_term2 = 0.0;
-  if (mtk_flag) {
-    for (int i = 0; i < 3; i++)
-      if (p_flag[i])
-        mtk_term2 += omega_dot[i];
-    if (pdim > 0) mtk_term2 /= pdim * atom->natoms;
-  }
 
   if (pstyle == TRICLINIC) {
     for (int i = 3; i < 6; i++) {
