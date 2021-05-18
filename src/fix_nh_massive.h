@@ -54,7 +54,7 @@ class FixNHMassive : public Fix {
   double t0;      // reference temperature
                   // used for barostat mass
   double t_start, t_stop;
-  double t_current, t_target, ke_target;
+  double t_target, ke_target;
   double t_freq;
 
   int tstat_flag;    // 1 if control T
@@ -81,17 +81,15 @@ class FixNHMassive : public Fix {
   char *id_dilate;               // group name to dilate
   class Irregular *irregular;    // for migrating atoms after box flips
 
-  double p_temp;    // target temperature for barostat
+  double p_temp;                 // target temperature for barostat
   int p_temp_flag;
 
   int nlevels_respa;
   double *step_respa;
 
-  // int nmolecules;
-  char *id_temp, *id_press;
-  class Compute *temperature;
+  char *id_press;
   class ComputePressureMolecular *pressure;
-  int tcomputeflag, pcomputeflag;    // 1 = compute was created by fix
+  int pcomputeflag;                  // 1 = compute was created by fix
                                      // 0 = created externally
 
   double etap, etap_dot, etap_mass;  // chain thermostat for barostat
@@ -131,7 +129,6 @@ class FixNHMassive : public Fix {
 
   virtual void nve_x();    // may be overwritten by child classes
   virtual void nve_v();
-  virtual void nh_v_temp();
   virtual void compute_temp_target();
   virtual int size_restart_global();
 

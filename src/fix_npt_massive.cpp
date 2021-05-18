@@ -30,15 +30,6 @@ FixNPTMassive::FixNPTMassive(LAMMPS *lmp, int narg, char **arg) :
   if (!pstat_flag)
     error->all(FLERR,"Pressure control must be used with fix npt");
 
-  // create a new compute temp style
-  // id = fix-ID + temp
-  // compute group = all since pressure is always global (group all)
-  // and thus its KE/temperature contribution should use group all
-
-  id_temp = utils::strdup(std::string(id) + "_temp");
-  modify->add_compute(fmt::format("{} all temp", id_temp));
-  tcomputeflag = 1;
-
   // create a new compute pressure style
   // id = fix-ID + press, compute group = all
 

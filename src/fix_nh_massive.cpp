@@ -16,6 +16,7 @@
 
    TO DO LIST:
      [x] Check if mtk_term1 and mtk_term2 are correct with massive tstat
+     [ ] Implement massive thermostatting for barostat variables
      [ ] Check if pressure->compute_com() is unnecessary in some places
      [ ] Make it incompatible with RIGID BODIES
      [ ] Make it incompatible with TEMPERATURA BIAS
@@ -55,7 +56,6 @@ using namespace FixConst;
 #define TILTMAX 1.5
 #define EPSILON 1.0e-6
 
-enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 
@@ -66,7 +66,7 @@ enum{ISO,ANISO,TRICLINIC};
 FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(nullptr), id_dilate(nullptr), irregular(nullptr),
-  id_temp(nullptr), id_press(nullptr), eta(nullptr), v_eta(nullptr)
+  id_press(nullptr), eta(nullptr), v_eta(nullptr)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -100,9 +100,7 @@ FixNHMassive::FixNHMassive(LAMMPS *lmp, int narg, char **arg) :
   deterministic_flag = 1;
   global_tstat_flag = 0;
 
-  tcomputeflag = 0;
   pcomputeflag = 0;
-  id_temp = nullptr;
   id_press = nullptr;
 
   // turn on tilt factor scaling, whenever applicable
@@ -578,16 +576,13 @@ FixNHMassive::~FixNHMassive()
 
   delete irregular;
 
-  // delete temperature and pressure if fix created them
-
-  if (tcomputeflag) modify->delete_compute(id_temp);
-  delete [] id_temp;
-
   if (tstat_flag) {
     memory->destroy(v_eta);
     if (deterministic_flag)
       memory->destroy(eta);
   }
+
+  // delete pressure if fix created them
 
   if (pstat_flag) {
     if (pcomputeflag) {
@@ -637,18 +632,10 @@ void FixNHMassive::init()
                      "same component of stress tensor");
       }
 
-  // set temperature and pressure ptrs
-
-  int icompute = modify->find_compute(id_temp);
-  if (icompute < 0)
-    error->all(FLERR,"Temperature ID for fix nvt/npt does not exist");
-  temperature = modify->compute[icompute];
-
-  if (temperature->tempbias) which = BIAS;
-  else which = NOBIAS;
+  // set pressure ptr
 
   if (pstat_flag) {
-    icompute = modify->find_compute(id_press);
+    int icompute = modify->find_compute(id_press);
     if (icompute < 0)
       error->all(FLERR,"Pressure ID for fix npt/nph does not exist");
     pressure = (ComputePressureMolecular *) modify->compute[icompute];
@@ -731,11 +718,6 @@ void FixNHMassive::init()
 
 void FixNHMassive::setup(int /*vflag*/)
 {
-  // tdof needed by compute_temp_target()
-
-  t_current = temperature->compute_scalar();
-  tdof = temperature->dof;
-
   // t_target is needed by NVT and NPT in compute_scalar()
   // If no thermostat or using fix nphug,
   // t_target must be defined by other means.
@@ -755,7 +737,8 @@ void FixNHMassive::setup(int /*vflag*/)
       if (p_temp_flag) {
         t0 = p_temp;
       } else {
-        t0 = temperature->compute_scalar();
+        pressure->compute_scalar();
+        t0 = pressure->temp;
         if (t0 < EPSILON)
           error->all(FLERR,"Current temperature too close to zero, "
                      "consider using ptemp setting");
@@ -815,10 +798,6 @@ void FixNHMassive::initial_integrate(int /*vflag*/)
     compute_temp_target();
     nhc_temp_integrate();
   }
-
-  // need to recompute pressure to account for change in KE
-  // t_current is up-to-date, but compute_temperature is not
-  // compute appropriately coupled elements of mvv_current
 
   if (pstat_flag) {
     if (pstyle == ISO)
@@ -943,16 +922,6 @@ void FixNHMassive::final_integrate_respa(int ilevel, int /*iloop*/)
 
 void FixNHMassive::end_of_step()
 {
-  // compute new T,P after velocities rescaled by change_box()
-  // compute appropriately coupled elements of mvv_current
-
-  t_current = temperature->compute_scalar();
-  tdof = temperature->dof;
-
-  // need to recompute pressure to account for change in KE
-  // t_current is up-to-date, but compute_temperature is not
-  // compute appropriately coupled elements of mvv_current
-
   if (pstat_flag) {
     if (pstyle == ISO)
       pressure->compute_scalar();
@@ -1365,38 +1334,7 @@ void FixNHMassive::restart(char *buf)
 
 int FixNHMassive::modify_param(int narg, char **arg)
 {
-  if (strcmp(arg[0],"temp") == 0) {
-    if (narg < 2) error->all(FLERR,"Illegal fix_modify command");
-    if (tcomputeflag) {
-      modify->delete_compute(id_temp);
-      tcomputeflag = 0;
-    }
-    delete [] id_temp;
-    id_temp = utils::strdup(arg[1]);
-
-    int icompute = modify->find_compute(arg[1]);
-    if (icompute < 0)
-      error->all(FLERR,"Could not find fix_modify temperature ID");
-    temperature = modify->compute[icompute];
-
-    if (temperature->tempflag == 0)
-      error->all(FLERR,
-                 "Fix_modify temperature ID does not compute temperature");
-    if (temperature->igroup != 0 && comm->me == 0)
-      error->warning(FLERR,"Temperature for fix modify is not for group all");
-
-    // reset id_temp of pressure to new temperature ID
-
-    if (pstat_flag) {
-      icompute = modify->find_compute(id_press);
-      if (icompute < 0)
-        error->all(FLERR,"Pressure ID for fix modify does not exist");
-      modify->compute[icompute]->reset_extra_compute_fix(id_temp);
-    }
-
-    return 2;
-
-  } else if (strcmp(arg[0],"press") == 0) {
+  if (strcmp(arg[0],"press") == 0) {
     if (narg < 2) error->all(FLERR,"Illegal fix_modify command");
     if (!pstat_flag) error->all(FLERR,"Illegal fix_modify command");
     if (pcomputeflag) {
@@ -1864,38 +1802,6 @@ void FixNHMassive::nve_x()
       x[i][0] += dtv * v[i][0];
       x[i][1] += dtv * v[i][1];
       x[i][2] += dtv * v[i][2];
-    }
-  }
-}
-
-/* ----------------------------------------------------------------------
-   perform half-step thermostat scaling of velocities
------------------------------------------------------------------------*/
-
-void FixNHMassive::nh_v_temp()
-{
-  double **v = atom->v;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  if (which == NOBIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-      }
-    }
-  } else if (which == BIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-        temperature->restore_bias(i,v[i]);
-      }
     }
   }
 }
