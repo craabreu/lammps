@@ -68,11 +68,14 @@ class FixNHRegulated : public Fix {
   double omega_mass[6];
   double p_current[6];
 
-  int deterministic_flag;
   double **eta, **v_eta, Q_eta;
-
   double regulation_parameter;
   double *umax;
+
+  int langevin_flag, p_gamma_flag;
+  int seed;
+  double t_gamma, p_gamma;
+  class RanMars *random;
 
   double drag, tdrag_factor;     // drag factor on particle thermostat
   double pdrag_factor;           // drag factor on barostat

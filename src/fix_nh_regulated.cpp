@@ -34,20 +34,21 @@
 #include <cstring>
 #include <cmath>
 #include "atom.h"
+#include "comm.h"
+#include "compute.h"
+#include "domain.h"
+#include "error.h"
+#include "fix_deform.h"
 #include "force.h"
 #include "group.h"
-#include "comm.h"
-#include "neighbor.h"
 #include "irregular.h"
-#include "modify.h"
-#include "fix_deform.h"
-#include "compute.h"
 #include "kspace.h"
-#include "update.h"
-#include "respa.h"
-#include "domain.h"
 #include "memory.h"
-#include "error.h"
+#include "modify.h"
+#include "neighbor.h"
+#include "random_mars.h"
+#include "respa.h"
+#include "update.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -100,9 +101,10 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   dlm_flag = 0;
   p_temp_flag = 0;
 
-  deterministic_flag = 1;
   regulation_parameter = 1;
   respa_splitting = MIDDLE_RESPA;
+  langevin_flag = 0;
+  p_gamma_flag = 0;
 
   pcomputeflag = 0;
   id_press = nullptr;
@@ -151,7 +153,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
         error->all(FLERR,
                    "Target temperature for fix nvt/npt/nph cannot be 0.0");
       iarg += 4;
-
     }
     else if (strcmp(arg[iarg],"iso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -233,7 +234,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       iarg += 4;
       if (dimension == 2)
         error->all(FLERR,"Invalid fix nvt/npt/nph command for a 2d simulation");
-
     }
     else if (strcmp(arg[iarg],"yz") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -268,7 +268,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       deviatoric_flag = 1;
       scalexy = 0;
       iarg += 4;
-
     }
     else if (strcmp(arg[iarg],"couple") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -279,7 +278,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       else if (strcmp(arg[iarg+1],"none") == 0) pcouple = NONE;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-
     }
     else if (strcmp(arg[iarg],"drag") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -306,7 +304,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
           error->all(FLERR,"Fix nvt/npt/nph dilate group ID does not exist");
       }
       iarg += 2;
-
     }
     else if (strcmp(arg[iarg],"tloop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -381,6 +378,21 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       regulation_parameter = utils::numeric(FLERR, arg[iarg+1], false, lmp);
       if (regulation_parameter <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
+    }
+    else if (strcmp(arg[iarg],"langevin") == 0) {
+      if (iarg+3 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      langevin_flag = 1;
+      t_gamma = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+      seed = utils::inumeric(FLERR, arg[iarg+2], false, lmp);
+      if (t_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 3;
+    }
+    else if (strcmp(arg[iarg],"p_gamma") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      p_gamma_flag = 1;
+      p_gamma = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+      if (p_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
 
     // disc keyword is also parsed in fix/nh/sphere
 
@@ -403,6 +415,14 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
     }
     else
       error->all(FLERR,"Illegal fix nvt/npt/nph command");
+  }
+
+  if (langevin_flag) {
+    if (!tstat_flag)
+      error->all(FLERR,"Invalid fix nvt/npt/nph command");
+    if (!p_gamma_flag)
+      p_gamma = t_gamma;
+    random = new RanMars(lmp, seed + 143*comm->me);
   }
 
   // error checks
@@ -568,12 +588,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   if (tstat_flag) {
     grow_arrays(atom->nmax);
     atom->add_callback(Atom::GROW);
-
-    for (int i = 0; i < atom->nmax; i++) {
-      v_eta[i][0] = v_eta[i][1] = v_eta[i][2] = 0.0;
-      if (deterministic_flag)
-        eta[i][0] = eta[i][1] = eta[i][2] = 0.0;
-    }
   }
 
   if (pstat_flag) {
@@ -587,11 +601,6 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
     else if (pstyle == ANISO) size_vector += 2*2*3;
     else if (pstyle == TRICLINIC) size_vector += 2*2*6;
 
-
-    // add one extra dummy thermostat, set to zero
-
-    etap = 0.0;
-    etap_dot = 0.0;
     size_vector += 4;
 
     if (deviatoric_flag) size_vector += 1;
@@ -622,16 +631,18 @@ FixNHRegulated::~FixNHRegulated()
 
   if (tstat_flag) {
     memory->destroy(v_eta);
-    if (deterministic_flag)
+    if (!langevin_flag)
       memory->destroy(eta);
   }
+
+  if (langevin_flag)
+    delete [] random;
 
   // delete pressure if fix created them
 
   if (pstat_flag) {
-    if (pcomputeflag) {
+    if (pcomputeflag)
       modify->delete_compute(id_press);
-    }
     delete [] id_press;
   }
 }
@@ -755,21 +766,37 @@ void FixNHRegulated::init()
       if (modify->fix[i]->rigid_flag) rfix[nrigid++] = i;
   }
 
-  // store maximum speed of each atom
+  if (tstat_flag) {
+    double *rmass = atom->rmass;
+    double *mass = atom->mass;
+    int *type = atom->type;
+    int *mask = atom->mask;
+    int nlocal = atom->nlocal;
+    if (igroup == atom->firstgroup)
+      nlocal = atom->nfirst;
+    double LkT = regulation_parameter*boltz*t_target/mvv2e;
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double massone = rmass ? rmass[i] : mass[type[i]];
+        umax[i] = sqrt(LkT/massone);
+        if (langevin_flag) {
+          v_eta[i][0] = t_freq * random->gaussian();
+          v_eta[i][1] = t_freq * random->gaussian();
+          v_eta[i][2] = t_freq * random->gaussian();
+        }
+        else {
+          eta[i][0] = eta[i][1] = eta[i][2] = 0.0;
+          v_eta[i][0] = v_eta[i][1] = v_eta[i][2] = 0.0;
+        }
+      }
 
-  double *rmass = atom->rmass;
-  double *mass = atom->mass;
-  int *type = atom->type;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup)
-  nlocal = atom->nfirst;
-  double LkT = regulation_parameter * boltz * t_target / mvv2e;
-  for (int i = 0; i < nlocal; i++)
-    if (mask[i] & groupbit) {
-      double massone = rmass ? rmass[i] : mass[type[i]];
-      umax[i] = sqrt(LkT/massone);
+    if (langevin_flag) {
+      etap_dot = p_freq_max * random->gaussian();
+      MPI_Bcast(&etap_dot, 1, MPI_DOUBLE, 0, world);
     }
+    else
+      etap = etap_dot = 0.0;
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -1437,7 +1464,7 @@ double FixNHRegulated::compute_scalar()
   int i;
   double volume;
   double energy, eproc;
-  double kt = boltz * t_target;
+  double kt = boltz*t_target;
   double lkt_press = 0.0;
 
   if (dimension == 3)
@@ -1474,7 +1501,7 @@ double FixNHRegulated::compute_scalar()
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         sum_vsq += v_eta[i][0]*v_eta[i][0] + v_eta[i][1]*v_eta[i][1] + v_eta[i][2]*v_eta[i][2];
-        if (deterministic_flag)
+        if (!langevin_flag)
           sum_eta += eta[i][0] + eta[i][1] + eta[i][2];
       }
     eproc += kt*sum_eta + 0.5*Q_eta*sum_vsq;
@@ -1720,41 +1747,58 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
   int *type = atom->type;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  double kT = boltz * t_target;
+  if (igroup == atom->firstgroup)
+    nlocal = atom->nfirst;
 
   // Update mass to preserve initial freq, if flag set
 
+  double kT = boltz*t_target;
   if (eta_mass_flag)
-    Q_eta = kT / (t_freq*t_freq);
+    Q_eta = kT/(t_freq*t_freq);
 
-  double dt2loop = dt/nc_tchain;
-  double dt4loop = 0.5*dt/(nc_tchain*Q_eta);
+  double ldt = dt/nc_tchain;
+  double ldt2 = 0.5*ldt;
+  double ldt2Q = ldt2/Q_eta;
+
+  double a = exp(-ldt*t_gamma);
+  double b = sqrt((1.0 - a*a)*kT/Q_eta);
+
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double cinv = 1.0/umax[i];
-      double mc = mvv2e*(rmass ? rmass[i] : mass[type[i]])*umax[i];
+      double umax_inv = 1.0/umax[i];
+      double massone = rmass ? rmass[i] : mass[type[i]];
+      double mass_umax = mvv2e*massone*umax[i];
       for (int iloop = 0; iloop < nc_tchain; iloop++) {
+        v_eta[i][0] += (mass_umax*v[i][0]*tanh(v[i][0]*umax_inv) - kT)*ldt2Q;
+        v_eta[i][1] += (mass_umax*v[i][1]*tanh(v[i][1]*umax_inv) - kT)*ldt2Q;
+        v_eta[i][2] += (mass_umax*v[i][2]*tanh(v[i][2]*umax_inv) - kT)*ldt2Q;
 
-        v_eta[i][0] += (mc*v[i][0]*tanh(v[i][0]*cinv) - kT)*dt4loop;
-        v_eta[i][1] += (mc*v[i][1]*tanh(v[i][1]*cinv) - kT)*dt4loop;
-        v_eta[i][2] += (mc*v[i][2]*tanh(v[i][2]*cinv) - kT)*dt4loop;
+        if (langevin_flag) {
+          v[i][0] *= exp(-ldt2*v_eta[i][0]);
+          v[i][1] *= exp(-ldt2*v_eta[i][1]);
+          v[i][2] *= exp(-ldt2*v_eta[i][2]);
 
-        v[i][0] *= exp(-dt2loop*v_eta[i][0]);
-        v[i][1] *= exp(-dt2loop*v_eta[i][1]);
-        v[i][2] *= exp(-dt2loop*v_eta[i][2]);
+          v_eta[i][0] = a*v_eta[i][0] + b*random->gaussian();
+          v_eta[i][1] = a*v_eta[i][1] + b*random->gaussian();
+          v_eta[i][2] = a*v_eta[i][2] + b*random->gaussian();
 
-        if (deterministic_flag) {
-          eta[i][0] += dt2loop*v_eta[i][0];
-          eta[i][1] += dt2loop*v_eta[i][1];
-          eta[i][2] += dt2loop*v_eta[i][2];
+          v[i][0] *= exp(-ldt2*v_eta[i][0]);
+          v[i][1] *= exp(-ldt2*v_eta[i][1]);
+          v[i][2] *= exp(-ldt2*v_eta[i][2]);
+        }
+        else {
+          v[i][0] *= exp(-ldt*v_eta[i][0]);
+          v[i][1] *= exp(-ldt*v_eta[i][1]);
+          v[i][2] *= exp(-ldt*v_eta[i][2]);
+
+          eta[i][0] += ldt*v_eta[i][0];
+          eta[i][1] += ldt*v_eta[i][1];
+          eta[i][2] += ldt*v_eta[i][2];
         }
 
-        v_eta[i][0] += (mc*v[i][0]*tanh(v[i][0]*cinv) - kT)*dt4loop;
-        v_eta[i][1] += (mc*v[i][1]*tanh(v[i][1]*cinv) - kT)*dt4loop;
-        v_eta[i][2] += (mc*v[i][2]*tanh(v[i][2]*cinv) - kT)*dt4loop;
-
+        v_eta[i][0] += (mass_umax*v[i][0]*tanh(v[i][0]*umax_inv) - kT)*ldt2Q;
+        v_eta[i][1] += (mass_umax*v[i][1]*tanh(v[i][1]*umax_inv) - kT)*ldt2Q;
+        v_eta[i][2] += (mass_umax*v[i][2]*tanh(v[i][2]*umax_inv) - kT)*ldt2Q;
       }
     }
 }
@@ -1766,27 +1810,27 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
 
 void FixNHRegulated::nhc_press_integrate()
 {
-  int ich,i,pdof;
-  double expfac,factor_etap,kecurrent;
-  double kt = boltz * t_target;
+  int i, pdof;
+  double expfac, factor_etap, kecurrent;
+  double kt = boltz*t_target;
   double lkt_press;
 
   // Update masses, to preserve initial freq, if flag set
 
   if (omega_mass_flag) {
-    double nkt = (atom->natoms + 1) * kt;
+    double nkt = (atom->natoms + 1)*kt;  // Change to nmolecules?
     for (i = 0; i < 3; i++)
       if (p_flag[i])
         omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
 
-    if (pstyle == TRICLINIC) {
+    if (pstyle == TRICLINIC)
       for (i = 3; i < 6; i++)
-        if (p_flag[i]) omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
-    }
+        if (p_flag[i])
+          omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
   }
 
   if (etap_mass_flag)
-    etap_mass = boltz * t_target / (p_freq_max*p_freq_max);
+    etap_mass = kt/(p_freq_max*p_freq_max);
 
   kecurrent = 0.0;
   pdof = 0;
@@ -1796,43 +1840,72 @@ void FixNHRegulated::nhc_press_integrate()
       pdof++;
     }
 
-  if (pstyle == TRICLINIC) {
+  if (pstyle == TRICLINIC)
     for (i = 3; i < 6; i++)
       if (p_flag[i]) {
         kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
         pdof++;
       }
-  }
 
   if (pstyle == ISO)
     lkt_press = kt;
   else
-    lkt_press = pdof * kt;
+    lkt_press = pdof*kt;
 
   double ncfac = 1.0/nc_pchain;
-  for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
+  double a = exp(-ncfac*dthalf*p_gamma);
+  double b = sqrt((1.0 - a*a)*kt/etap_mass);
+
+  for (int iloop = 0; iloop < nc_pchain; iloop++) {
     etap_dot += ncfac*dt4*(kecurrent - lkt_press)/etap_mass;
 
-    etap += ncfac*dthalf*etap_dot;
+    if (langevin_flag) {
+      factor_etap = exp(-ncfac*dt4*etap_dot);
+      for (i = 0; i < 3; i++)
+        if (p_flag[i])
+          omega_dot[i] *= factor_etap;
 
-    factor_etap = exp(-ncfac*dthalf*etap_dot);
-    for (i = 0; i < 3; i++)
-      if (p_flag[i]) omega_dot[i] *= factor_etap;
+      if (pstyle == TRICLINIC)
+        for (i = 3; i < 6; i++)
+          if (p_flag[i])
+            omega_dot[i] *= factor_etap;
 
-    if (pstyle == TRICLINIC) {
-      for (i = 3; i < 6; i++)
-        if (p_flag[i]) omega_dot[i] *= factor_etap;
+      etap_dot = a*etap_dot + b*random->gaussian();
+
+      factor_etap = exp(-ncfac*dt4*etap_dot);
+      for (i = 0; i < 3; i++)
+        if (p_flag[i])
+          omega_dot[i] *= factor_etap;
+
+      if (pstyle == TRICLINIC)
+        for (i = 3; i < 6; i++)
+          if (p_flag[i])
+            omega_dot[i] *= factor_etap;
+    }
+    else {
+      etap += ncfac*dthalf*etap_dot;
+
+      factor_etap = exp(-ncfac*dthalf*etap_dot);
+      for (i = 0; i < 3; i++)
+        if (p_flag[i])
+          omega_dot[i] *= factor_etap;
+
+      if (pstyle == TRICLINIC)
+        for (i = 3; i < 6; i++)
+          if (p_flag[i])
+            omega_dot[i] *= factor_etap;
     }
 
     kecurrent = 0.0;
     for (i = 0; i < 3; i++)
-      if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
+      if (p_flag[i])
+        kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
 
-    if (pstyle == TRICLINIC) {
+    if (pstyle == TRICLINIC)
       for (i = 3; i < 6; i++)
-        if (p_flag[i]) kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
-    }
+        if (p_flag[i])
+          kecurrent += omega_mass[i]*omega_dot[i]*omega_dot[i];
 
     etap_dot += ncfac*dt4*(kecurrent - lkt_press)/etap_mass;
   }
@@ -2194,12 +2267,9 @@ void FixNHRegulated::pre_exchange()
 
 double FixNHRegulated::memory_usage()
 {
-  double bytes = 0.0;
+  double bytes = (double)atom->nmax*7*sizeof(double);
   if (irregular)
     bytes += irregular->memory_usage();
-  bytes += (double)atom->nmax*4*sizeof(double);
-  if (deterministic_flag)
-    bytes += atom->nmax*3*sizeof(double);
   return bytes;
 }
 
@@ -2210,8 +2280,7 @@ double FixNHRegulated::memory_usage()
 void FixNHRegulated::grow_arrays(int nmax)
 {
   memory->grow(v_eta, nmax, 3, "fix_nh_massive:v_eta");
-  if (deterministic_flag)
-    memory->grow(eta, nmax, 3, "fix_nh_massive:eta");
+  memory->grow(eta, nmax, 3, "fix_nh_massive:eta");
   memory->grow(umax, nmax, "fix_nh_massive:umax");
 }
 
@@ -2224,7 +2293,7 @@ void FixNHRegulated::copy_arrays(int i, int j, int /*delflag*/)
   v_eta[j][0] = v_eta[i][0];
   v_eta[j][1] = v_eta[i][1];
   v_eta[j][2] = v_eta[i][2];
-  if (deterministic_flag) {
+  if (!langevin_flag) {
     eta[j][0] = eta[i][0];
     eta[j][1] = eta[i][1];
     eta[j][2] = eta[i][2];
@@ -2242,7 +2311,7 @@ int FixNHRegulated::pack_exchange(int i, double *buf)
   buf[n++] = v_eta[i][0];
   buf[n++] = v_eta[i][1];
   buf[n++] = v_eta[i][2];
-  if (deterministic_flag) {
+  if (!langevin_flag) {
     buf[n++] = eta[i][0];
     buf[n++] = eta[i][1];
     buf[n++] = eta[i][2];
@@ -2261,7 +2330,7 @@ int FixNHRegulated::unpack_exchange(int nlocal, double *buf)
   v_eta[nlocal][0] = buf[n++];
   v_eta[nlocal][1] = buf[n++];
   v_eta[nlocal][2] = buf[n++];
-  if (deterministic_flag) {
+  if (!langevin_flag) {
     eta[nlocal][0] = buf[n++];
     eta[nlocal][1] = buf[n++];
     eta[nlocal][2] = buf[n++];
