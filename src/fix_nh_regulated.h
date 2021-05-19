@@ -77,6 +77,8 @@ class FixNHRegulated : public Fix {
   double t_gamma, p_gamma;
   class RanMars *random;
 
+  int normalize_flag;
+
   double drag, tdrag_factor;     // drag factor on particle thermostat
   double pdrag_factor;           // drag factor on barostat
   int kspace_flag;               // 1 if KSpace invoked, 0 if not

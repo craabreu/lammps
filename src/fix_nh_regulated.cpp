@@ -105,6 +105,7 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   respa_splitting = MIDDLE_RESPA;
   langevin_flag = 0;
   p_gamma_flag = 0;
+  normalize_flag = 1;
 
   pcomputeflag = 0;
   id_press = nullptr;
@@ -387,11 +388,18 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       if (t_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 3;
     }
-    else if (strcmp(arg[iarg],"p_gamma") == 0) {
+    else if (strcmp(arg[iarg],"pgamma") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_gamma_flag = 1;
       p_gamma = utils::numeric(FLERR, arg[iarg+1], false, lmp);
       if (p_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
+    }
+    else if (strcmp(arg[iarg],"normalize") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"yes") == 0) normalize_flag = 1;
+      else if (strcmp(arg[iarg+1],"no") == 0) normalize_flag = 0;
+      else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
 
     // disc keyword is also parsed in fix/nh/sphere
@@ -774,7 +782,8 @@ void FixNHRegulated::init()
     int nlocal = atom->nlocal;
     if (igroup == atom->firstgroup)
       nlocal = atom->nfirst;
-    double LkT = regulation_parameter*boltz*t_target/mvv2e;
+    double kT = boltz*t_target/mvv2e;
+    double LkT = regulation_parameter*kT;
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         double massone = rmass ? rmass[i] : mass[type[i]];
@@ -796,6 +805,27 @@ void FixNHRegulated::init()
     }
     else
       etap = etap_dot = 0.0;
+
+    // scale velocities to comply with target temperature
+
+    if (normalize_flag) {
+      double **v = atom->v;
+      double factor = 1.0;
+      double stored = 0.0;
+      while (fabs(factor - stored) > 1E-6) {
+        stored = factor;
+        double sum_vu = 0.0;
+        for (int i = 0; i < nlocal; i++) {
+          double mass_umax = (rmass ? rmass[i] : mass[type[i]])*umax[i];
+          for (int j = 0; j < 3; j++)
+            sum_vu += mass_umax*v[i][j]*tanh(factor*v[i][j]/umax[i]);
+        }
+        factor = 3*nlocal*kT/sum_vu;
+      }
+      for (int i = 0; i < nlocal; i++)
+        for (int j = 0; j < 3; j++)
+          v[i][j] *= factor;
+    }
   }
 }
 
@@ -1012,11 +1042,7 @@ void FixNHRegulated::final_integrate_respa(int ilevel, int /*iloop*/)
   dtf = 0.5 * step_respa[ilevel] * force->ftm2v;
   dthalf = 0.5 * step_respa[ilevel];
 
-  // outermost level - update omega_dot, apply via final_integrate
-  // all other levels - NVE update of v
-
-  if (ilevel == nlevels_respa-1) final_integrate();
-  else nve_v();
+  nve_v();
 }
 
 /* ---------------------------------------------------------------------- */
