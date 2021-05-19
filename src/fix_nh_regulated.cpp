@@ -69,7 +69,7 @@ enum{XO_RESPA,MIDDLE_RESPA};
 FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
   Fix(lmp, narg, arg),
   rfix(nullptr), id_dilate(nullptr), irregular(nullptr),
-  id_press(nullptr), eta(nullptr), v_eta(nullptr), vmax(nullptr)
+  id_press(nullptr), eta(nullptr), v_eta(nullptr), umax(nullptr)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -152,7 +152,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
                    "Target temperature for fix nvt/npt/nph cannot be 0.0");
       iarg += 4;
 
-    } else if (strcmp(arg[iarg],"iso") == 0) {
+    }
+    else if (strcmp(arg[iarg],"iso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       pcouple = XYZ;
       p_start[0] = p_start[1] = p_start[2] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
@@ -165,7 +166,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
         p_flag[2] = 0;
       }
       iarg += 4;
-    } else if (strcmp(arg[iarg],"aniso") == 0) {
+    }
+    else if (strcmp(arg[iarg],"aniso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       pcouple = NONE;
       p_start[0] = p_start[1] = p_start[2] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
@@ -178,7 +180,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
         p_flag[2] = 0;
       }
       iarg += 4;
-    } else if (strcmp(arg[iarg],"tri") == 0) {
+    }
+    else if (strcmp(arg[iarg],"tri") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       pcouple = NONE;
       scalexy = scalexz = scaleyz = 0;
@@ -201,7 +204,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
         p_flag[4] = 0;
       }
       iarg += 4;
-    } else if (strcmp(arg[iarg],"x") == 0) {
+    }
+    else if (strcmp(arg[iarg],"x") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[0] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[0] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -209,7 +213,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       p_flag[0] = 1;
       deviatoric_flag = 1;
       iarg += 4;
-    } else if (strcmp(arg[iarg],"y") == 0) {
+    }
+    else if (strcmp(arg[iarg],"y") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[1] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[1] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -217,7 +222,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       p_flag[1] = 1;
       deviatoric_flag = 1;
       iarg += 4;
-    } else if (strcmp(arg[iarg],"z") == 0) {
+    }
+    else if (strcmp(arg[iarg],"z") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[2] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[2] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -228,7 +234,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       if (dimension == 2)
         error->all(FLERR,"Invalid fix nvt/npt/nph command for a 2d simulation");
 
-    } else if (strcmp(arg[iarg],"yz") == 0) {
+    }
+    else if (strcmp(arg[iarg],"yz") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[3] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[3] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -239,7 +246,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       iarg += 4;
       if (dimension == 2)
         error->all(FLERR,"Invalid fix nvt/npt/nph command for a 2d simulation");
-    } else if (strcmp(arg[iarg],"xz") == 0) {
+    }
+    else if (strcmp(arg[iarg],"xz") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[4] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[4] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -250,7 +258,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       iarg += 4;
       if (dimension == 2)
         error->all(FLERR,"Invalid fix nvt/npt/nph command for a 2d simulation");
-    } else if (strcmp(arg[iarg],"xy") == 0) {
+    }
+    else if (strcmp(arg[iarg],"xy") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_start[5] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_stop[5] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
@@ -260,7 +269,8 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       scalexy = 0;
       iarg += 4;
 
-    } else if (strcmp(arg[iarg],"couple") == 0) {
+    }
+    else if (strcmp(arg[iarg],"couple") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"xyz") == 0) pcouple = XYZ;
       else if (strcmp(arg[iarg+1],"xy") == 0) pcouple = XY;
@@ -270,18 +280,21 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"drag") == 0) {
+    }
+    else if (strcmp(arg[iarg],"drag") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       drag = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       if (drag < 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"ptemp") == 0) {
+    }
+    else if (strcmp(arg[iarg],"ptemp") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       p_temp = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       p_temp_flag = 1;
       if (p_temp <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"dilate") == 0) {
+    }
+    else if (strcmp(arg[iarg],"dilate") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"all") == 0) allremap = 1;
       else {
@@ -294,46 +307,54 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       }
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"tloop") == 0) {
+    }
+    else if (strcmp(arg[iarg],"tloop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       nc_tchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
       if (nc_tchain < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"ploop") == 0) {
+    }
+    else if (strcmp(arg[iarg],"ploop") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       nc_pchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
       if (nc_pchain < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"nreset") == 0) {
+    }
+    else if (strcmp(arg[iarg],"nreset") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       nreset_h0 = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
       if (nreset_h0 < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"scalexy") == 0) {
+    }
+    else if (strcmp(arg[iarg],"scalexy") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"yes") == 0) scalexy = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scalexy = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"scalexz") == 0) {
+    }
+    else if (strcmp(arg[iarg],"scalexz") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"yes") == 0) scalexz = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scalexz = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"scaleyz") == 0) {
+    }
+    else if (strcmp(arg[iarg],"scaleyz") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"yes") == 0) scaleyz = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) scaleyz = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"flip") == 0) {
+    }
+    else if (strcmp(arg[iarg],"flip") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"yes") == 0) flipflag = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) flipflag = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"update") == 0) {
+    }
+    else if (strcmp(arg[iarg],"update") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"dipole") == 0) dipole_flag = 1;
       else if (strcmp(arg[iarg+1],"dipole/dlm") == 0) {
@@ -341,18 +362,21 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
         dlm_flag = 1;
       } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
-    } else if (strcmp(arg[iarg],"fixedpoint") == 0) {
+    }
+    else if (strcmp(arg[iarg],"fixedpoint") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       fixedpoint[0] = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       fixedpoint[1] = utils::numeric(FLERR,arg[iarg+2],false,lmp);
       fixedpoint[2] = utils::numeric(FLERR,arg[iarg+3],false,lmp);
       iarg += 4;
-    } else if (strcmp(arg[iarg],"respa_splitting") == 0) {
+    }
+    else if (strcmp(arg[iarg],"respa_splitting") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
       else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
       iarg += 2;
-    } else if (strcmp(arg[iarg],"regulation") == 0) {
+    }
+    else if (strcmp(arg[iarg],"regulation") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       regulation_parameter = utils::numeric(FLERR, arg[iarg+1], false, lmp);
       if (regulation_parameter <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -360,19 +384,25 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
 
     // disc keyword is also parsed in fix/nh/sphere
 
-    } else if (strcmp(arg[iarg],"disc") == 0) {
+    }
+    else if (strcmp(arg[iarg],"disc") == 0) {
       iarg++;
 
     // keywords erate, strain, and ext are also parsed in fix/nh/uef
 
-    } else if (strcmp(arg[iarg],"erate") == 0) {
+    }
+    else if (strcmp(arg[iarg],"erate") == 0) {
       iarg += 3;
-    } else if (strcmp(arg[iarg],"strain") == 0) {
+    }
+    else if (strcmp(arg[iarg],"strain") == 0) {
       iarg += 3;
-    } else if (strcmp(arg[iarg],"ext") == 0) {
+    }
+    else if (strcmp(arg[iarg],"ext") == 0) {
       iarg += 2;
 
-    } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
+    }
+    else
+      error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
   // error checks
@@ -732,11 +762,13 @@ void FixNHRegulated::init()
   int *type = atom->type;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+  if (igroup == atom->firstgroup)
+  nlocal = atom->nfirst;
+  double LkT = regulation_parameter * boltz * t_target / mvv2e;
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double massone = rmass ? rmass[i] : mass[type[i]];
-      vmax[i] = sqrt(regulation_parameter*boltz*t_target/massone);
+      umax[i] = sqrt(LkT/massone);
     }
 }
 
@@ -1413,8 +1445,6 @@ double FixNHRegulated::compute_scalar()
   else
     volume = domain->xprd * domain->yprd;
 
-  energy = eproc = 0.0;
-
   // add regulation kinetic energy and subtract conventional one
 
   double **v = atom->v;
@@ -1426,13 +1456,14 @@ double FixNHRegulated::compute_scalar()
   if (igroup == atom->firstgroup)
     nlocal = atom->nfirst;
   double ke = 0.0;
+  double regke = 0.0;
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       double imass = rmass ? rmass[i] : mass[type[i]];
-      eproc += logcosh(v[i][0]/vmax[i]) + logcosh(v[i][1]/vmax[i]) + logcosh(v[i][2]/vmax[i]);
-      ke = imass*(v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2]);
+      regke += logcosh(v[i][0]/umax[i]) + logcosh(v[i][1]/umax[i]) + logcosh(v[i][2]/umax[i]);
+      ke += imass*(v[i][0]*v[i][0] + v[i][1]*v[i][1] + v[i][2]*v[i][2]);
     }
-  eproc = regulation_parameter * kt * eproc - ke;
+  eproc = regulation_parameter*kt*regke - 0.5*mvv2e*ke;
 
   // thermostat energy is a massive-thermostatting version of
   // Eq. (2) in Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
@@ -1702,8 +1733,8 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
   double dt4loop = 0.5*dt/(nc_tchain*Q_eta);
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double cinv = 1.0/vmax[i];
-      double mc = mvv2e*(rmass ? rmass[i] : mass[type[i]])*vmax[i];
+      double cinv = 1.0/umax[i];
+      double mc = mvv2e*(rmass ? rmass[i] : mass[type[i]])*umax[i];
       for (int iloop = 0; iloop < nc_tchain; iloop++) {
 
         v_eta[i][0] += (mc*v[i][0]*tanh(v[i][0]*cinv) - kT)*dt4loop;
@@ -1861,11 +1892,11 @@ void FixNHRegulated::nve_x(double dtv)
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double dtv_vmax = dtv*vmax[i];
-      double inv_vmax = 1.0/vmax[i];
-      x[i][0] += dtv_vmax*tanh(v[i][0]*inv_vmax);
-      x[i][1] += dtv_vmax*tanh(v[i][1]*inv_vmax);
-      x[i][2] += dtv_vmax*tanh(v[i][2]*inv_vmax);
+      double dtv_umax = dtv*umax[i];
+      double inv_umax = 1.0/umax[i];
+      x[i][0] += dtv_umax*tanh(v[i][0]*inv_umax);
+      x[i][1] += dtv_umax*tanh(v[i][1]*inv_umax);
+      x[i][2] += dtv_umax*tanh(v[i][2]*inv_umax);
     }
 }
 
@@ -2181,7 +2212,7 @@ void FixNHRegulated::grow_arrays(int nmax)
   memory->grow(v_eta, nmax, 3, "fix_nh_massive:v_eta");
   if (deterministic_flag)
     memory->grow(eta, nmax, 3, "fix_nh_massive:eta");
-  memory->grow(vmax, nmax, "fix_nh_massive:vmax");
+  memory->grow(umax, nmax, "fix_nh_massive:umax");
 }
 
 /* ----------------------------------------------------------------------
@@ -2198,7 +2229,7 @@ void FixNHRegulated::copy_arrays(int i, int j, int /*delflag*/)
     eta[j][1] = eta[i][1];
     eta[j][2] = eta[i][2];
   }
-  vmax[j] = vmax[i];
+  umax[j] = umax[i];
 }
 
 /* ----------------------------------------------------------------------
@@ -2216,7 +2247,7 @@ int FixNHRegulated::pack_exchange(int i, double *buf)
     buf[n++] = eta[i][1];
     buf[n++] = eta[i][2];
   }
-  buf[n++] = vmax[i];
+  buf[n++] = umax[i];
   return n;
 }
 
@@ -2235,6 +2266,6 @@ int FixNHRegulated::unpack_exchange(int nlocal, double *buf)
     eta[nlocal][1] = buf[n++];
     eta[nlocal][2] = buf[n++];
   }
-  vmax[nlocal] = buf[n++];
+  umax[nlocal] = buf[n++];
   return n;
 }

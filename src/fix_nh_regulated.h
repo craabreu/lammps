@@ -72,7 +72,7 @@ class FixNHRegulated : public Fix {
   double **eta, **v_eta, Q_eta;
 
   double regulation_parameter;
-  double *vmax;
+  double *umax;
 
   double drag, tdrag_factor;     // drag factor on particle thermostat
   double pdrag_factor;           // drag factor on barostat

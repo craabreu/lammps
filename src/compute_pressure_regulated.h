@@ -36,7 +36,7 @@ class ComputePressureRegulated : public Compute {
   virtual void compute_com();
 
   int nmolecules;
-  double **rcm, **vcm, **pcm, *mtotal;
+  double **rcm, **vcm, **ucm, *mtotal;
 
   int dof;
   double temp;
@@ -57,7 +57,7 @@ class ComputePressureRegulated : public Compute {
  private:
   int massneed;
   double *mproc;
-  double **mrproc, **mvproc, **pproc;
+  double **mrproc, **mvproc, **muproc;
 
   void allocate(int);
 };
