@@ -144,16 +144,19 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
 
   while (iarg < narg) {
     if (strcmp(arg[iarg],"temp") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (iarg+5 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       tstat_flag = 1;
       t_start = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       t_target = t_start;
       t_stop = utils::numeric(FLERR,arg[iarg+2],false,lmp);
       t_period = utils::numeric(FLERR,arg[iarg+3],false,lmp);
       if (t_start <= 0.0 || t_stop <= 0.0)
-        error->all(FLERR,
-                   "Target temperature for fix nvt/npt/nph cannot be 0.0");
-      iarg += 4;
+        error->all(FLERR, "Target temperature for fix nvt/npt/nph cannot be 0.0");
+      if (strcmp(arg[iarg+4],"NULL") == 0)
+        langevin_flag = 0;
+      else
+        seed = utils::inumeric(FLERR,arg[iarg+4],false,lmp);
+      iarg += 5;
     }
     else if (strcmp(arg[iarg],"iso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -380,13 +383,19 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       if (regulation_parameter <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
     }
-    else if (strcmp(arg[iarg],"langevin") == 0) {
-      if (iarg+3 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+    else if (strcmp(arg[iarg],"seed") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       langevin_flag = 1;
-      t_gamma = utils::numeric(FLERR, arg[iarg+1], false, lmp);
       seed = utils::inumeric(FLERR, arg[iarg+2], false, lmp);
       if (t_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 3;
+    }
+    else if (strcmp(arg[iarg],"tgamma") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      t_gamma_flag = 1;
+      t_gamma = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+      if (p_gamma <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
     }
     else if (strcmp(arg[iarg],"pgamma") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -425,13 +434,7 @@ FixNHRegulated::FixNHRegulated(LAMMPS *lmp, int narg, char **arg) :
       error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
-  if (langevin_flag) {
-    if (!tstat_flag)
-      error->all(FLERR,"Invalid fix nvt/npt/nph command");
-    if (!p_gamma_flag)
-      p_gamma = t_gamma;
-    random = new RanMars(lmp, seed + 143*comm->me);
-  }
+  if (langevin_flag) random = new RanMars(lmp, seed + 143*comm->me);
 
   // error checks
 
@@ -727,6 +730,13 @@ void FixNHRegulated::init()
 
   if (tstat_flag)
     tdrag_factor = 1.0 - (update->dt * t_freq * drag / nc_tchain);
+
+  // set langevin parameters
+
+  if (langevin_flag) {
+    if (!t_gamma_flag) t_gamma = t_freq;
+    if (pstat_flag && !p_gamma_flag) p_gamma = p_freq_max;
+  }
 
   // tally the number of dimensions that are barostatted
   // set initial volume and reference cell, if not already done
@@ -1779,8 +1789,10 @@ void FixNHRegulated::nhc_temp_integrate(double dt)
   // Update mass to preserve initial freq, if flag set
 
   double kT = boltz*t_target;
-  if (eta_mass_flag)
+  if (eta_mass_flag) {
     Q_eta = kT/(t_freq*t_freq);
+    if (!t_gamma_flag) t_gamma = t_freq;
+  }
 
   double ldt = dt/nc_tchain;
   double ldt2 = 0.5*ldt;
@@ -1855,8 +1867,10 @@ void FixNHRegulated::nhc_press_integrate()
           omega_mass[i] = nkt/(p_freq[i]*p_freq[i]);
   }
 
-  if (etap_mass_flag)
+  if (etap_mass_flag) {
     etap_mass = kt/(p_freq_max*p_freq_max);
+    if (!p_gamma_flag) p_gamma = p_freq_max;
+  }
 
   kecurrent = 0.0;
   pdof = 0;

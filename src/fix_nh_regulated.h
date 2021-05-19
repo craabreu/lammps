@@ -72,7 +72,7 @@ class FixNHRegulated : public Fix {
   double regulation_parameter;
   double *umax;
 
-  int langevin_flag, p_gamma_flag;
+  int langevin_flag, p_gamma_flag, t_gamma_flag;
   int seed;
   double t_gamma, p_gamma;
   class RanMars *random;
