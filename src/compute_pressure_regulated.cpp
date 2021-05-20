@@ -38,8 +38,8 @@ using namespace LAMMPS_NS;
 
 ComputePressureRegulated::ComputePressureRegulated(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg),
-  vptr(nullptr), mproc(nullptr), mtotal(nullptr), mrproc(nullptr), rcm(nullptr),
-  mvproc(nullptr), vcm(nullptr), muproc(nullptr), ucm(nullptr)
+  vptr(nullptr), m_proc(nullptr), m_total(nullptr), mr_proc(nullptr), rcm(nullptr),
+  mv_proc(nullptr), vcm(nullptr), mu_proc(nullptr), ucm(nullptr)
 {
   if (narg != 5) error->all(FLERR,"Illegal compute pressure/regulated command");
   if (igroup) error->all(FLERR,"compute pressure/regulated must use group all");
@@ -60,7 +60,7 @@ ComputePressureRegulated::ComputePressureRegulated(LAMMPS *lmp, int narg, char *
   nvirial = 0;
   vptr = nullptr;
 
-  massneed = 1;
+  mass_needed = 1;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -70,13 +70,13 @@ ComputePressureRegulated::~ComputePressureRegulated()
   delete [] vector;
   delete [] vptr;
 
-  memory->destroy(mproc);
-  memory->destroy(mtotal);
-  memory->destroy(mrproc);
+  memory->destroy(m_proc);
+  memory->destroy(m_total);
+  memory->destroy(mr_proc);
   memory->destroy(rcm);
-  memory->destroy(mvproc);
+  memory->destroy(mv_proc);
   memory->destroy(vcm);
-  memory->destroy(muproc);
+  memory->destroy(mu_proc);
   memory->destroy(ucm);
 }
 
@@ -148,9 +148,9 @@ void ComputePressureRegulated::init()
 
 void ComputePressureRegulated::setup()
 {
-  if (massneed) {
+  if (mass_needed) {
     compute_com();
-    massneed = 0;
+    mass_needed = 0;
   }
 }
 
@@ -169,18 +169,18 @@ double ComputePressureRegulated::compute_scalar()
   double two_ke = 0.0;
   if (dimension == 3) {
     for (int j = 0; j < nmolecules; j++)
-      two_ke += mtotal[j]*(vcm[j][0]*ucm[j][0] + vcm[j][1]*ucm[j][1] + vcm[j][2]*ucm[j][2]);
+      two_ke += m_total[j]*(vcm[j][0]*ucm[j][0] + vcm[j][1]*ucm[j][1] + vcm[j][2]*ucm[j][2]);
     two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
-    virial_compute(3,3);
+    virial_compute(3, 3);
     scalar = (two_ke + virial[0] + virial[1] + virial[2]) / 3.0 * inv_volume * nktv2p;
   }
   else {
     for (int j = 0; j < nmolecules; j++)
-      two_ke += mtotal[j]*(vcm[j][0]*ucm[j][0] + vcm[j][1]*ucm[j][1]);
+      two_ke += m_total[j]*(vcm[j][0]*ucm[j][0] + vcm[j][1]*ucm[j][1]);
     two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd);
-    virial_compute(2,2);
+    virial_compute(2, 2);
     scalar = (two_ke + virial[0] + virial[1]) / 2.0 * inv_volume * nktv2p;
   }
   temp = two_ke/(dof*boltz);
@@ -208,12 +208,12 @@ void ComputePressureRegulated::compute_vector()
   for (int i = 0; i < 6; i++)
     ke_tensor[i] = 0.0;
   for (int j = 0; j < nmolecules; j++) {
-    ke_tensor[0] += mtotal[j]*vcm[j][0]*ucm[j][0];
-    ke_tensor[1] += mtotal[j]*vcm[j][1]*ucm[j][1];
-    ke_tensor[2] += mtotal[j]*vcm[j][2]*ucm[j][2];
-    ke_tensor[3] += mtotal[j]*vcm[j][0]*ucm[j][1];
-    ke_tensor[4] += mtotal[j]*vcm[j][0]*ucm[j][2];
-    ke_tensor[5] += mtotal[j]*vcm[j][1]*ucm[j][2];
+    ke_tensor[0] += m_total[j]*vcm[j][0]*ucm[j][0];
+    ke_tensor[1] += m_total[j]*vcm[j][1]*ucm[j][1];
+    ke_tensor[2] += m_total[j]*vcm[j][2]*ucm[j][2];
+    ke_tensor[3] += m_total[j]*vcm[j][0]*ucm[j][1];
+    ke_tensor[4] += m_total[j]*vcm[j][0]*ucm[j][2];
+    ke_tensor[5] += m_total[j]*vcm[j][1]*ucm[j][2];
   }
   for (int i = 0; i < 6; i++)
     ke_tensor[i] *= mvv2e;
@@ -303,13 +303,13 @@ void ComputePressureRegulated::compute_com()
   // zero local per-molecule values
 
   for (int i = 0; i < nmolecules; i++) {
-    mrproc[i][0] = mrproc[i][1] = mrproc[i][2] = 0.0;
-    mvproc[i][0] = mvproc[i][1] = mvproc[i][2] = 0.0;
-    muproc[i][0] = muproc[i][1] = muproc[i][2] = 0.0;
+    mr_proc[i][0] = mr_proc[i][1] = mr_proc[i][2] = 0.0;
+    mv_proc[i][0] = mv_proc[i][1] = mv_proc[i][2] = 0.0;
+    mu_proc[i][0] = mu_proc[i][1] = mu_proc[i][2] = 0.0;
   }
-  if (massneed)
+  if (mass_needed)
     for (int i = 0; i < nmolecules; i++)
-      mproc[i] = 0.0;
+      m_proc[i] = 0.0;
 
   // compute COM for each molecule
 
@@ -333,60 +333,60 @@ void ComputePressureRegulated::compute_com()
       mumax = sqrt(massone*nkT);
       umaxinv = massone/mumax;
 
-      mrproc[index][0] += massone * unwrap[0];
-      mrproc[index][1] += massone * unwrap[1];
-      mrproc[index][2] += massone * unwrap[2];
+      mr_proc[index][0] += massone * unwrap[0];
+      mr_proc[index][1] += massone * unwrap[1];
+      mr_proc[index][2] += massone * unwrap[2];
 
-      muproc[index][0] += mumax * tanh(v[i][0] * umaxinv);
-      muproc[index][1] += mumax * tanh(v[i][1] * umaxinv);
-      muproc[index][2] += mumax * tanh(v[i][2] * umaxinv);
+      mu_proc[index][0] += mumax * tanh(v[i][0] * umaxinv);
+      mu_proc[index][1] += mumax * tanh(v[i][1] * umaxinv);
+      mu_proc[index][2] += mumax * tanh(v[i][2] * umaxinv);
 
-      mvproc[index][0] += massone * v[i][0];
-      mvproc[index][1] += massone * v[i][1];
-      mvproc[index][2] += massone * v[i][2];
+      mv_proc[index][0] += massone * v[i][0];
+      mv_proc[index][1] += massone * v[i][1];
+      mv_proc[index][2] += massone * v[i][2];
 
-      if (massneed)
-        mproc[index] += massone;
+      if (mass_needed)
+        m_proc[index] += massone;
     }
 
-  MPI_Allreduce(&mrproc[0][0], &rcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&muproc[0][0], &ucm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&mvproc[0][0], &vcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
-  if (massneed) MPI_Allreduce(mproc, mtotal, nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mr_proc[0][0], &rcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mu_proc[0][0], &ucm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mv_proc[0][0], &vcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  if (mass_needed) MPI_Allreduce(m_proc, m_total, nmolecules, MPI_DOUBLE, MPI_SUM, world);
 
   for (int i = 0; i < nmolecules; i++) {
-    rcm[i][0] /= mtotal[i];
-    rcm[i][1] /= mtotal[i];
-    rcm[i][2] /= mtotal[i];
+    rcm[i][0] /= m_total[i];
+    rcm[i][1] /= m_total[i];
+    rcm[i][2] /= m_total[i];
 
-    ucm[i][0] /= mtotal[i];
-    ucm[i][1] /= mtotal[i];
-    ucm[i][2] /= mtotal[i];
+    ucm[i][0] /= m_total[i];
+    ucm[i][1] /= m_total[i];
+    ucm[i][2] /= m_total[i];
 
-    vcm[i][0] /= mtotal[i];
-    vcm[i][1] /= mtotal[i];
-    vcm[i][2] /= mtotal[i];
+    vcm[i][0] /= m_total[i];
+    vcm[i][1] /= m_total[i];
+    vcm[i][2] /= m_total[i];
   }
 }
 
 void ComputePressureRegulated::allocate(int nmolecules)
 {
-  memory->destroy(mproc);
-  memory->destroy(mtotal);
-  memory->destroy(mrproc);
+  memory->destroy(m_proc);
+  memory->destroy(m_total);
+  memory->destroy(mr_proc);
   memory->destroy(rcm);
-  memory->destroy(mvproc);
+  memory->destroy(mv_proc);
   memory->destroy(vcm);
-  memory->destroy(muproc);
+  memory->destroy(mu_proc);
   memory->destroy(ucm);
 
-  memory->create(mproc, nmolecules, "pressure/regulated:mproc");
-  memory->create(mtotal, nmolecules, "pressure/regulated:mtotal");
-  memory->create(mrproc, nmolecules, 3, "pressure/regulated:mrproc");
+  memory->create(m_proc, nmolecules, "pressure/regulated:m_proc");
+  memory->create(m_total, nmolecules, "pressure/regulated:m_total");
+  memory->create(mr_proc, nmolecules, 3, "pressure/regulated:mr_proc");
   memory->create(rcm, nmolecules, 3, "pressure/regulated:rcm");
-  memory->create(mvproc, nmolecules, 3, "pressure/regulated:mvproc");
+  memory->create(mv_proc, nmolecules, 3, "pressure/regulated:mv_proc");
   memory->create(vcm, nmolecules, 3, "pressure/regulated:vcm");
-  memory->create(muproc, nmolecules, 3, "pressure/regulated:muproc");
+  memory->create(mu_proc, nmolecules, 3, "pressure/regulated:mu_proc");
   memory->create(ucm, nmolecules, 3, "pressure/regulated:ucm");
 }
 
