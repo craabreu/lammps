@@ -1031,7 +1031,7 @@ void FixNHMassive::change_box()
   pressure->compute_com();
 
   double **rcm = pressure->rcm;
-  double **vcm = pressure->vcm;
+  double **vcm = pressure->temperature->vcm;
   tagint *molindex = atom->molecule;
   int nmol = pressure->nmolecules;
 

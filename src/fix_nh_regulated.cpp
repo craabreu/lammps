@@ -30,7 +30,7 @@
 ------------------------------------------------------------------------- */
 
 #include "fix_nh_regulated.h"
-#include "compute_pressure_molecular.h"
+#include "compute_pressure_regulated.h"
 #include <cstring>
 #include <cmath>
 #include "atom.h"
@@ -704,7 +704,7 @@ void FixNHRegulated::init()
     int icompute = modify->find_compute(id_press);
     if (icompute < 0)
       error->all(FLERR,"Pressure ID for fix npt/nph does not exist");
-    pressure = (ComputePressureMolecular *) modify->compute[icompute];
+    pressure = (ComputePressureRegulated *) modify->compute[icompute];
   }
 
   // set timesteps and frequencies
@@ -1483,7 +1483,7 @@ int FixNHRegulated::modify_param(int narg, char **arg)
 
     int icompute = modify->find_compute(arg[1]);
     if (icompute < 0) error->all(FLERR,"Could not find fix_modify pressure ID");
-    pressure = (ComputePressureMolecular *) modify->compute[icompute];
+    pressure = (ComputePressureRegulated *) modify->compute[icompute];
 
     if (pressure->pressflag == 0)
       error->all(FLERR,"Fix_modify pressure ID does not compute pressure");

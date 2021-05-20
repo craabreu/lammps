@@ -21,6 +21,7 @@ ComputeStyle(pressure/molecular,ComputePressureMolecular);
 #define LMP_COMPUTE_PRESSURE_MOLECULAR_H
 
 #include "compute.h"
+#include "compute_temp_molecular.h"
 
 namespace LAMMPS_NS {
 
@@ -36,13 +37,15 @@ class ComputePressureMolecular : public Compute {
   virtual void compute_com();
 
   int nmolecules;
-  double **rcm, **vcm, *mtotal;
+  double **rcm, *m_total;
 
   int dof;
   double temp;
-  double ke_tensor[6];
+
+  class ComputeTempMolecular *temperature;
 
  protected:
+  double nkT;
   double boltz, nktv2p, mvv2e, inv_volume;
   int nvirial, dimension;
   double **vptr;
@@ -54,9 +57,12 @@ class ComputePressureMolecular : public Compute {
   double memory_usage();
 
  private:
-  int massneed;
-  double *mproc;
-  double **mrproc, **mvproc;
+  int mass_needed;
+  double *m_proc, **mr_proc;
+
+  int keflag, ke_tensor_flag;
+  char *id_temp;
+  double two_ke, *ke_tensor;
 
   void allocate(int);
 };

@@ -34,17 +34,17 @@
 #include <cstring>
 using namespace LAMMPS_NS;
 
-enum{ONCE,NFREQ,EVERY};
-
 /* ---------------------------------------------------------------------- */
 
 ComputePressureMolecular::ComputePressureMolecular(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg),
-  vptr(nullptr), mproc(nullptr), mtotal(nullptr),
-  mrproc(nullptr), rcm(nullptr), mvproc(nullptr), vcm(nullptr)
+  vptr(nullptr), m_proc(nullptr), m_total(nullptr), mr_proc(nullptr), rcm(nullptr)
 {
-  if (narg != 3) error->all(FLERR,"Illegal compute pressure/molecular command");
+  if (narg != 4) error->all(FLERR,"Illegal compute pressure/molecular command");
   if (igroup) error->all(FLERR,"compute pressure/molecular must use group all");
+
+  id_temp = strdup(arg[3]);
+  keflag = strcmp(id_temp, "NULL") != 0;
 
   scalar_flag = vector_flag = 1;
   size_vector = 6;
@@ -57,7 +57,8 @@ ComputePressureMolecular::ComputePressureMolecular(LAMMPS *lmp, int narg, char *
   nvirial = 0;
   vptr = nullptr;
 
-  massneed = 1;
+  mass_needed = 1;
+  ke_tensor_flag = 0;
 }
 
 /* ---------------------------------------------------------------------- */
@@ -66,19 +67,37 @@ ComputePressureMolecular::~ComputePressureMolecular()
 {
   delete [] vector;
   delete [] vptr;
+  delete [] id_temp;
 
-  memory->destroy(mproc);
-  memory->destroy(mtotal);
-  memory->destroy(mrproc);
+  if (ke_tensor_flag) delete [] ke_tensor;
+
+  memory->destroy(m_proc);
+  memory->destroy(m_total);
+  memory->destroy(mr_proc);
   memory->destroy(rcm);
-  memory->destroy(mvproc);
-  memory->destroy(vcm);
 }
 
 /* ---------------------------------------------------------------------- */
 
 void ComputePressureMolecular::init()
 {
+  if (keflag) {
+    int icompute = modify->find_compute(id_temp);
+    if (icompute < 0)
+      error->all(FLERR,"Temperature ID for compute pressure/molecular does not exist");
+    temperature = (ComputeTempMolecular *) modify->compute[icompute];
+    if (strcmp(temperature->style, "temp/molecular") != 0)
+      error->all(FLERR,"Temperature compute for pressure/molecular is not temp/molecular style");
+    ke_tensor = temperature->vector;
+  }
+  else {
+    two_ke = 0.0;
+    ke_tensor_flag = 1;
+    ke_tensor = new double[6];
+    for (int i = 0; i < 6; i++)
+      ke_tensor[i] = 0.0;
+  }
+
   boltz = force->boltz;
   nktv2p = force->nktv2p;
   mvv2e = force->mvv2e;
@@ -143,9 +162,9 @@ void ComputePressureMolecular::init()
 
 void ComputePressureMolecular::setup()
 {
-  if (massneed) {
+  if (mass_needed) {
     compute_com();
-    massneed = 0;
+    mass_needed = 0;
   }
 }
 
@@ -161,21 +180,21 @@ double ComputePressureMolecular::compute_scalar()
 
   compute_com();
 
-  double two_ke = 0.0;
+  if (keflag) {
+    if (temperature->invoked_scalar != update->ntimestep)
+      two_ke = dof*boltz*temperature->compute_scalar();
+    else
+      two_ke = dof*boltz*temperature->scalar;
+  }
+
   if (dimension == 3) {
-    for (int j = 0; j < nmolecules; j++)
-      two_ke += mtotal[j]*(vcm[j][0]*vcm[j][0] + vcm[j][1]*vcm[j][1] + vcm[j][2]*vcm[j][2]);
-    two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
-    virial_compute(3,3);
+    virial_compute(3, 3);
     scalar = (two_ke + virial[0] + virial[1] + virial[2]) / 3.0 * inv_volume * nktv2p;
   }
   else {
-    for (int j = 0; j < nmolecules; j++)
-      two_ke += mtotal[j]*(vcm[j][0]*vcm[j][0] + vcm[j][1]*vcm[j][1]);
-    two_ke *= mvv2e;
     inv_volume = 1.0 / (domain->xprd * domain->yprd);
-    virial_compute(2,2);
+    virial_compute(2, 2);
     scalar = (two_ke + virial[0] + virial[1]) / 2.0 * inv_volume * nktv2p;
   }
   temp = two_ke/(dof*boltz);
@@ -198,28 +217,17 @@ void ComputePressureMolecular::compute_vector()
     error->all(FLERR,"Must use 'kspace_modify pressure/scalar no' for "
                "tensor components with kspace_style msm");
 
-  compute_com();
-
-  for (int i = 0; i < 6; i++)
-    ke_tensor[i] = 0.0;
-  for (int i = 0; i < nmolecules; i++) {
-    double massone = mtotal[i];
-    ke_tensor[0] += vcm[i][0]*vcm[i][0] * massone;
-    ke_tensor[1] += vcm[i][1]*vcm[i][1] * massone;
-    ke_tensor[2] += vcm[i][2]*vcm[i][2] * massone;
-    ke_tensor[3] += vcm[i][0]*vcm[i][1] * massone;
-    ke_tensor[4] += vcm[i][0]*vcm[i][2] * massone;
-    ke_tensor[5] += vcm[i][1]*vcm[i][2] * massone;
-  }
-  for (int i = 0; i < 6; i++)
-    ke_tensor[i] *= mvv2e;
+  if (keflag)
+    if (temperature->invoked_vector != update->ntimestep)
+      temperature->compute_vector();
 
   if (dimension == 3) {
     inv_volume = 1.0 / (domain->xprd * domain->yprd * domain->zprd);
     virial_compute(6,3);
     for (int i = 0; i < 6; i++)
       vector[i] = (ke_tensor[i] + virial[i]) * inv_volume * nktv2p;
-  } else {
+  }
+  else {
     inv_volume = 1.0 / (domain->xprd * domain->yprd);
     virial_compute(4,2);
     vector[0] = (ke_tensor[0] + virial[0]) * inv_volume * nktv2p;
@@ -257,8 +265,9 @@ void ComputePressureMolecular::virial_compute(int n, int ndiag)
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       int index = molecule[i]-1;
-      if (index < 0) continue;
-      domain->unmap(x[i],image[i],dx);
+      if (index < 0)
+        continue;
+      domain->unmap(x[i], image[i], dx);
       dx[0] -= rcm[index][0];
       dx[1] -= rcm[index][1];
       dx[2] -= rcm[index][2];
@@ -291,24 +300,21 @@ void ComputePressureMolecular::virial_compute(int n, int ndiag)
 
 void ComputePressureMolecular::compute_com()
 {
-  int index;
+  int imol;
   double massone;
   double unwrap[3];
 
   // zero local per-molecule values
 
-  for (int i = 0; i < nmolecules; i++) {
-    mrproc[i][0] = mrproc[i][1] = mrproc[i][2] = 0.0;
-    mvproc[i][0] = mvproc[i][1] = mvproc[i][2] = 0.0;
-  }
-  if (massneed)
+  for (int i = 0; i < nmolecules; i++)
+    mr_proc[i][0] = mr_proc[i][1] = mr_proc[i][2] = 0.0;
+  if (mass_needed)
     for (int i = 0; i < nmolecules; i++)
-      mproc[i] = 0.0;
+      m_proc[i] = 0.0;
 
-  // compute COM for each molecule
+  // compute COM variables for each molecule
 
   double **x = atom->x;
-  double **v = atom->v;
   int *mask = atom->mask;
   int *type = atom->type;
   imageint *image = atom->image;
@@ -317,51 +323,41 @@ void ComputePressureMolecular::compute_com()
   tagint *molecule = atom->molecule;
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      index = molecule[i]-1;
+      imol = molecule[i] - 1;
       massone = rmass ? rmass[i] : mass[type[i]];
-      domain->unmap(x[i],image[i],unwrap);
-      mrproc[index][0] += unwrap[0] * massone;
-      mrproc[index][1] += unwrap[1] * massone;
-      mrproc[index][2] += unwrap[2] * massone;
-      mvproc[index][0] += v[i][0] * massone;
-      mvproc[index][1] += v[i][1] * massone;
-      mvproc[index][2] += v[i][2] * massone;
-      if (massneed)
-        mproc[index] += massone;
+      domain->unmap(x[i], image[i], unwrap);
+
+      mr_proc[imol][0] += massone * unwrap[0];
+      mr_proc[imol][1] += massone * unwrap[1];
+      mr_proc[imol][2] += massone * unwrap[2];
+
+      if (mass_needed) m_proc[imol] += massone;
     }
 
-  MPI_Allreduce(&mrproc[0][0], &rcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
-  MPI_Allreduce(&mvproc[0][0], &vcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
-  if (massneed) MPI_Allreduce(mproc, mtotal, nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  MPI_Allreduce(&mr_proc[0][0], &rcm[0][0], 3*nmolecules, MPI_DOUBLE, MPI_SUM, world);
+  if (mass_needed)
+    MPI_Allreduce(m_proc, m_total, nmolecules, MPI_DOUBLE, MPI_SUM, world);
 
   for (int i = 0; i < nmolecules; i++) {
-    rcm[i][0] /= mtotal[i];
-    rcm[i][1] /= mtotal[i];
-    rcm[i][2] /= mtotal[i];
-    vcm[i][0] /= mtotal[i];
-    vcm[i][1] /= mtotal[i];
-    vcm[i][2] /= mtotal[i];
+    rcm[i][0] /= m_total[i];
+    rcm[i][1] /= m_total[i];
+    rcm[i][2] /= m_total[i];
   }
 }
 
 void ComputePressureMolecular::allocate(int nmolecules)
 {
-  memory->destroy(mproc);
-  memory->destroy(mtotal);
-  memory->destroy(mrproc);
+  memory->destroy(m_proc);
+  memory->destroy(m_total);
+  memory->destroy(mr_proc);
   memory->destroy(rcm);
-  memory->destroy(mvproc);
-  memory->destroy(vcm);
 
-  memory->create(mproc,nmolecules,"pressure/molecular:mproc");
-  memory->create(mtotal,nmolecules,"pressure/molecular:mtotal");
-  memory->create(mrproc,nmolecules,3,"pressure/molecular:mrproc");
-  memory->create(rcm,nmolecules,3,"pressure/molecular:rcm");
-  memory->create(mvproc,nmolecules,3,"pressure/molecular:mvproc");
-  memory->create(vcm,nmolecules,3,"pressure/molecular:vcm");
+  memory->create(m_proc, nmolecules, "pressure/molecular:m_proc");
+  memory->create(m_total, nmolecules, "pressure/molecular:m_total");
+  memory->create(mr_proc, nmolecules, 3, "pressure/molecular:mr_proc");
+  memory->create(rcm, nmolecules, 3, "pressure/molecular:rcm");
 }
 
 /* ----------------------------------------------------------------------
@@ -371,6 +367,6 @@ void ComputePressureMolecular::allocate(int nmolecules)
 double ComputePressureMolecular::memory_usage()
 {
   double bytes = (bigint) nmolecules * 2 * sizeof(double);
-  bytes += (double) nmolecules * 4 * 3 * sizeof(double);
+  bytes += (double) nmolecules * 2 * 3 * sizeof(double);
   return bytes;
 }
