@@ -38,7 +38,8 @@ using namespace LAMMPS_NS;
 
 ComputePressureMolecular::ComputePressureMolecular(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg),
-  vptr(nullptr), m_proc(nullptr), m_total(nullptr), mr_proc(nullptr), rcm(nullptr)
+  temperature(nullptr), vptr(nullptr),
+  m_proc(nullptr), m_total(nullptr), mr_proc(nullptr), rcm(nullptr)
 {
   if (narg != 4) error->all(FLERR,"Illegal compute pressure/molecular command");
   if (igroup) error->all(FLERR,"compute pressure/molecular must use group all");

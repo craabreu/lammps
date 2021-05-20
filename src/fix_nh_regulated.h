@@ -96,7 +96,7 @@ class FixNHRegulated : public Fix {
   int respa_splitting;
 
   char *id_press;
-  class ComputePressureRegulated *pressure;
+  class ComputePressureMolecular *pressure;
   int pcomputeflag;                  // 1 = compute was created by fix
                                      // 0 = created externally
 

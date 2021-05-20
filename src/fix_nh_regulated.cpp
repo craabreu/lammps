@@ -30,7 +30,7 @@
 ------------------------------------------------------------------------- */
 
 #include "fix_nh_regulated.h"
-#include "compute_pressure_regulated.h"
+#include "compute_pressure_molecular.h"
 #include <cstring>
 #include <cmath>
 #include "atom.h"
@@ -704,7 +704,7 @@ void FixNHRegulated::init()
     int icompute = modify->find_compute(id_press);
     if (icompute < 0)
       error->all(FLERR,"Pressure ID for fix npt/nph does not exist");
-    pressure = (ComputePressureRegulated *) modify->compute[icompute];
+    pressure = (ComputePressureMolecular *) modify->compute[icompute];
   }
 
   // set timesteps and frequencies
@@ -864,8 +864,7 @@ void FixNHRegulated::setup(int /*vflag*/)
       if (p_temp_flag) {
         t0 = p_temp;
       } else {
-        pressure->compute_scalar();
-        t0 = pressure->temp;
+        t0 = pressure->temperature->compute_scalar();
         if (t0 < EPSILON)
           error->all(FLERR,"Current temperature too close to zero, "
                      "consider using ptemp setting");
@@ -927,15 +926,17 @@ void FixNHRegulated::initial_integrate(int /*vflag*/)
   }
 
   if (pstat_flag) {
-    if (pstyle == ISO)
+    if (pstyle == ISO) {
+      pressure->temperature->compute_scalar();
       pressure->compute_scalar();
-    else
+    }
+    else {
+      pressure->temperature->compute_vector();
       pressure->compute_vector();
+    }
     couple();
     pressure->addstep(update->ntimestep+1);
-  }
 
-  if (pstat_flag) {
     compute_press_target();
     nh_omega_dot();
   }
@@ -1003,15 +1004,17 @@ void FixNHRegulated::initial_integrate_respa(int /*vflag*/, int ilevel, int /*il
     // compute appropriately coupled elements of mvv_current
 
     if (pstat_flag) {
-      if (pstyle == ISO)
+      if (pstyle == ISO) {
+        pressure->temperature->compute_scalar();
         pressure->compute_scalar();
-      else
+      }
+      else {
+        pressure->temperature->compute_vector();
         pressure->compute_vector();
+      }
       couple();
       pressure->addstep(update->ntimestep+1);
-    }
 
-    if (pstat_flag) {
       compute_press_target();
       nh_omega_dot();
     }
@@ -1060,15 +1063,19 @@ void FixNHRegulated::final_integrate_respa(int ilevel, int /*iloop*/)
 void FixNHRegulated::end_of_step()
 {
   if (pstat_flag) {
-    if (pstyle == ISO)
+    if (pstyle == ISO) {
+      pressure->temperature->compute_scalar();
       pressure->compute_scalar();
-    else
+    }
+    else {
+      pressure->temperature->compute_vector();
       pressure->compute_vector();
+    }
     couple();
     pressure->addstep(update->ntimestep+1);
-  }
 
-  if (pstat_flag) nh_omega_dot();
+    nh_omega_dot();
+  }
 
   // update eta_press_dot
 
@@ -1146,9 +1153,10 @@ void FixNHRegulated::change_box()
     omega[i] += dto*omega_dot[i];
 
   pressure->compute_com();
+  pressure->temperature->compute_com();
 
   double **rcm = pressure->rcm;
-  double **vcm = pressure->vcm;
+  double **vcm = pressure->temperature->vcm;
   tagint *molindex = atom->molecule;
   int nmol = pressure->nmolecules;
 
@@ -1483,7 +1491,7 @@ int FixNHRegulated::modify_param(int narg, char **arg)
 
     int icompute = modify->find_compute(arg[1]);
     if (icompute < 0) error->all(FLERR,"Could not find fix_modify pressure ID");
-    pressure = (ComputePressureRegulated *) modify->compute[icompute];
+    pressure = (ComputePressureMolecular *) modify->compute[icompute];
 
     if (pressure->pressflag == 0)
       error->all(FLERR,"Fix_modify pressure ID does not compute pressure");
@@ -2183,27 +2191,31 @@ void FixNHRegulated::nh_omega_dot()
 {
   double f_omega,volume;
 
-  if (dimension == 3) volume = domain->xprd*domain->yprd*domain->zprd;
-  else volume = domain->xprd*domain->yprd;
+  if (dimension == 3)
+    volume = domain->xprd*domain->yprd*domain->zprd;
+  else
+    volume = domain->xprd*domain->yprd;
 
   if (deviatoric_flag) compute_deviatoric();
 
   double mtk_term1 = 0.0;
-  if (pstyle == ISO) {
-    mtk_term1 = pressure->dof * boltz * pressure->temp;
-    mtk_term1 /= pdim * pressure->nmolecules;
-  } else {
-    double *mvv_current = pressure->vector;
-    for (int i = 0; i < 3; i++)
-      if (p_flag[i])
-        mtk_term1 += mvv_current[i];
-    mtk_term1 /= pdim * pressure->nmolecules;
+  if (pressure->temperature) {
+    if (pstyle == ISO) {
+      mtk_term1 = pressure->dof * boltz * pressure->temperature->scalar;
+      mtk_term1 /= pdim * pressure->nmolecules;
+    } else {
+      double *mvv_current = pressure->temperature->vector;
+      for (int i = 0; i < 3; i++)
+        if (p_flag[i])
+          mtk_term1 += mvv_current[i];
+      mtk_term1 /= pdim * pressure->nmolecules;
+    }
   }
 
   for (int i = 0; i < 3; i++)
     if (p_flag[i]) {
-      f_omega = (p_current[i]-p_hydro)*volume /
-        (omega_mass[i] * nktv2p) + mtk_term1 / omega_mass[i];
+      f_omega = (p_current[i]-p_hydro)*volume / (omega_mass[i] * nktv2p) +
+                mtk_term1 / omega_mass[i];
       if (deviatoric_flag) f_omega -= fdev[i]/(omega_mass[i] * nktv2p);
       omega_dot[i] += f_omega*dthalf;
       omega_dot[i] *= pdrag_factor;
