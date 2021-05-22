@@ -95,6 +95,14 @@ class FixNHMassiveMolecular : public Fix {
 
   int respa_splitting;
 
+  int langevin_flag;
+  int seed;
+  int gamma_temp_default_flag;
+  int gamma_press_default_flag;
+  double gamma_temp, gamma_press;
+  class RanMars *random_temp, *random_press;
+  double **v_eta;
+
   double *etap;    // chain thermostat for barostat
   double *etap_dot;
   double *etap_dotdot;

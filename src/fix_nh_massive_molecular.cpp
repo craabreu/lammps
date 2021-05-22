@@ -36,6 +36,7 @@
 #include "domain.h"
 #include "memory.h"
 #include "error.h"
+#include "random_mars.h"
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -80,7 +81,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   allremap = 1;
   id_dilate = nullptr;
   mtchain = 1;
-  mpchain = 3;
+  mpchain = 1;
   nc_tchain = nc_pchain = 1;
   mtk_flag = 1;
   deviatoric_flag = 0;
@@ -99,6 +100,9 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   id_press = nullptr;
 
   respa_splitting = MIDDLE_RESPA;
+  langevin_flag = 1;
+  gamma_temp_default_flag = 1;
+  gamma_press_default_flag = 1;
 
   // turn on tilt factor scaling, whenever applicable
 
@@ -136,7 +140,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
 
   while (iarg < narg) {
     if (strcmp(arg[iarg],"temp") == 0) {
-      if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (iarg+5 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       tstat_flag = 1;
       t_start = utils::numeric(FLERR,arg[iarg+1],false,lmp);
       t_target = t_start;
@@ -145,7 +149,9 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       if (t_start <= 0.0 || t_stop <= 0.0)
         error->all(FLERR,
                    "Target temperature for fix nvt/npt/nph cannot be 0.0");
-      iarg += 4;
+      if (strcmp(arg[iarg+4],"NULL") == 0) langevin_flag = 0;
+      else seed = utils::inumeric(FLERR,arg[iarg+4],false,lmp);
+      iarg += 5;
 
     } else if (strcmp(arg[iarg],"iso") == 0) {
       if (iarg+4 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -376,10 +382,23 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       iarg += 2;
 
     } else if (strcmp(arg[iarg],"respa_splitting") == 0) {
-          if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-          if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
-          else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
-          iarg += 2;
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
+      else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"gamma_temp") == 0) {
+        if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+        gamma_temp_default_flag = 0;
+        gamma_temp = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+        if (gamma_temp <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+        iarg += 2;
+    }
+    else if (strcmp(arg[iarg],"gamma_press") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      gamma_press_default_flag = 0;
+      gamma_press = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+      if (gamma_press <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
@@ -596,6 +615,15 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
     if (deviatoric_flag) size_vector += 1;
   }
 
+  if (langevin_flag) {
+    random_temp = new RanMars(lmp, seed + 257 + 139*comm->me);
+    for (int i = 0; i < 100; i++) random_temp->uniform();
+    if (pstat_flag) {
+      random_press = new RanMars(lmp, seed);
+      for (int i = 0; i < 100; i++) random_press->uniform();
+    }
+  }
+
   nrigid = 0;
   rfix = nullptr;
 
@@ -627,6 +655,11 @@ FixNHMassiveMolecular::~FixNHMassiveMolecular()
   if (tstat_flag) {
     memory->destroy(eta);
     memory->destroy(eta_dot);
+  }
+
+  if (langevin_flag) {
+    delete [] random_temp;
+    if (pstat_flag) delete [] random_press;
   }
 
   if (pstat_flag) {
@@ -769,6 +802,12 @@ void FixNHMassiveMolecular::init()
       if (modify->fix[i]->rigid_flag) rfix[nrigid++] = i;
   }
 
+  // set Langevin parameters
+
+  if (langevin_flag) {
+    if (gamma_temp_default_flag) gamma_temp = t_freq;
+    if (pstat_flag && gamma_press_default_flag) gamma_press = p_freq_max;
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -1845,7 +1884,7 @@ void *FixNHMassiveMolecular::extract(const char *str, int &dim)
 void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 {
   int i, j, iloop, ich;
-  double expfac, imass, *v_eta;
+  double expfac, vfactor, imass, *v_eta;
   double kt = boltz * t_target;
 
   // Update masses, to preserve initial freq, if flag set
@@ -1867,8 +1906,14 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
         temperature->remove_bias(i, v[i]);
 
   double ldt = dt/nc_tchain;
-  double ldt2m = 0.5*ldt/eta_mass;
+  double ldt2 = 0.5*ldt;
+  double ldt2m = ldt2/eta_mass;
   double ldt4 = 0.25*ldt;
+  double a, b;
+  if (langevin_flag) {
+    a = exp(-gamma_temp*ldt);
+    b = sqrt((1.0-a*a)*kt/eta_mass);
+  }
   for (i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       imass = force->mvv2e*(rmass ? rmass[i] : mass[type[i]]);
@@ -1890,9 +1935,18 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
           v_eta[0] *= tdrag_factor;
           v_eta[0] *= expfac;
 
+          if (langevin_flag) {
+            vfactor = exp(-ldt2*v_eta[0]);
+            v_eta[mtchain-1] *= a;
+            v_eta[mtchain-1] += b*random_temp->gaussian();
+            vfactor *= exp(-ldt2*v_eta[0]);
+          }
+          else
+            vfactor = exp(-ldt*v_eta[0]);
+
           // rescale velocity
 
-          v[i][j] *= exp(-ldt*v_eta[0]);
+          v[i][j] *= vfactor;
 
           for (ich = 0; ich < mtchain; ich++)
             eta[i][j][ich] += ldt*v_eta[ich];
@@ -1975,6 +2029,11 @@ void FixNHMassiveMolecular::nhc_press_integrate()
   etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
 
   double ncfac = 1.0/nc_pchain;
+  double a, b;
+  if (langevin_flag) {
+    a = exp(-gamma_press*ncfac*dthalf);
+    b = sqrt((1.0-a*a)*kt/etap_mass[mpchain-1]);
+  }
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
     for (ich = mpchain-1; ich > 0; ich--) {
@@ -1994,7 +2053,15 @@ void FixNHMassiveMolecular::nhc_press_integrate()
     for (ich = 0; ich < mpchain; ich++)
       etap[ich] += ncfac*dthalf*etap_dot[ich];
 
-    factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+    if (langevin_flag) {
+      factor_etap = exp(-ncfac*dt4*etap_dot[0]);
+      etap_dot[mpchain-1] *= a;
+      etap_dot[mpchain-1] += b*random_press->gaussian();
+      factor_etap *= exp(-ncfac*dt4*etap_dot[0]);
+    }
+    else
+      factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
 
