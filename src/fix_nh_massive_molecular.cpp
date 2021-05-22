@@ -648,6 +648,7 @@ int FixNHMassiveMolecular::setmask()
   int mask = 0;
   mask |= INITIAL_INTEGRATE;
   mask |= FINAL_INTEGRATE;
+  mask |= END_OF_STEP;
   mask |= INITIAL_INTEGRATE_RESPA;
   mask |= FINAL_INTEGRATE_RESPA;
   if (pre_exchange_flag) mask |= PRE_EXCHANGE;
@@ -939,7 +940,12 @@ void FixNHMassiveMolecular::final_integrate()
 
   t_current = temperature->compute_scalar();
   tdof = temperature->dof;
+}
 
+/* ---------------------------------------------------------------------- */
+
+void FixNHMassiveMolecular::end_of_step()
+{
   // need to recompute pressure to account for change in KE
   // t_current is up-to-date, but compute_temperature is not
   // compute appropriately coupled elements of mvv_current
