@@ -47,6 +47,7 @@ using namespace FixConst;
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
+enum{XO_RESPA,MIDDLE_RESPA};
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -96,6 +97,8 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   pcomputeflag = 0;
   id_temp = nullptr;
   id_press = nullptr;
+
+  respa_splitting = MIDDLE_RESPA;
 
   // turn on tilt factor scaling, whenever applicable
 
@@ -372,6 +375,11 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
     } else if (strcmp(arg[iarg],"ext") == 0) {
       iarg += 2;
 
+    } else if (strcmp(arg[iarg],"respa_splitting") == 0) {
+          if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+          if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
+          else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
+          iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
@@ -859,7 +867,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (tstat_flag) {
     compute_temp_target();
-    nhc_temp_integrate();
+    if (respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
   }
 
   // need to recompute pressure to account for change in KE
@@ -890,7 +898,13 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) remap();
 
-  nve_x();
+  if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+    nve_x(dthalf);
+    nhc_temp_integrate(dtv);
+    nve_x(dthalf);
+  }
+  else
+    nve_x(dtv);
 
   // remap simulation box by 1/2 step
   // redo KSpace coeffs since volume has changed
@@ -945,7 +959,7 @@ void FixNHMassiveMolecular::final_integrate()
   // update eta_dot
   // update eta_press_dot
 
-  if (tstat_flag) nhc_temp_integrate();
+  if (tstat_flag && respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
   if (pstat_flag && mpchain) nhc_press_integrate();
 }
 
@@ -974,7 +988,7 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
 
     if (tstat_flag) {
       compute_temp_target();
-      nhc_temp_integrate();
+      if (respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
     }
 
     // recompute pressure to account for change in KE
@@ -1008,7 +1022,13 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
 
   if (ilevel == 0) {
     if (pstat_flag) remap();
-    nve_x();
+    if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+      nve_x(dthalf);
+      nhc_temp_integrate(dtv);
+      nve_x(dthalf);
+    }
+    else
+      nve_x(dtv);
     if (pstat_flag) remap();
   }
 
@@ -1816,10 +1836,10 @@ void *FixNHMassiveMolecular::extract(const char *str, int &dim)
    perform half-step update of chain thermostat variables
 ------------------------------------------------------------------------- */
 
-void FixNHMassiveMolecular::nhc_temp_integrate()
+void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 {
-  int ich;
-  double expfac;
+  int i, j, iloop, ich;
+  double expfac, imass, *v_eta;
   double kt = boltz * t_target;
 
   // Update masses, to preserve initial freq, if flag set
@@ -1835,47 +1855,59 @@ void FixNHMassiveMolecular::nhc_temp_integrate()
   int nlocal = atom->nlocal;
   if (igroup == atom->firstgroup) nlocal = atom->nfirst;
 
-  double ncfac = 1.0/nc_tchain;
-  for (int i = 0; i < nlocal; i++)
+  if (which == BIAS)
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit)
+        temperature->remove_bias(i, v[i]);
+
+  double ldt = dt/nc_tchain;
+  double ldt2m = 0.5*ldt/eta_mass;
+  double ldt4 = 0.25*ldt;
+  for (i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      double imass = force->mvv2e*(rmass ? rmass[i] : mass[type[i]]);
-      for (int iloop = 0; iloop < nc_tchain; iloop++)
-        for (int j = 0; j < 3; j++) {
-          double *v_eta = eta_dot[i][j];
+      imass = force->mvv2e*(rmass ? rmass[i] : mass[type[i]]);
+      for (iloop = 0; iloop < nc_tchain; iloop++)
+        for (j = 0; j < 3; j++) {
+          v_eta = eta_dot[i][j];
 
           for (ich = mtchain-1; ich > 0; ich--) {
-            expfac = exp(-ncfac*dt8*v_eta[ich+1]);
+            expfac = exp(-ldt4*v_eta[ich+1]);
             v_eta[ich] *= expfac;
-            v_eta[ich] += ncfac*dt4*(eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)/eta_mass;
+            v_eta[ich] += (eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)*ldt2m;
             v_eta[ich] *= tdrag_factor;
             v_eta[ich] *= expfac;
           }
 
-          expfac = exp(-ncfac*dt8*v_eta[1]);
+          expfac = exp(-ldt4*v_eta[1]);
           v_eta[0] *= expfac;
-          v_eta[0] += ncfac*dt4*(imass*v[i][j]*v[i][j] - kt)/eta_mass;
+          v_eta[0] += (imass*v[i][j]*v[i][j] - kt)*ldt2m;
           v_eta[0] *= tdrag_factor;
           v_eta[0] *= expfac;
 
           // rescale velocity
 
-          v[i][j] *= exp(-ncfac*dthalf*v_eta[0]);
+          v[i][j] *= exp(-ldt*v_eta[0]);
 
           for (ich = 0; ich < mtchain; ich++)
-            eta[i][j][ich] += ncfac*dthalf*v_eta[ich];
+            eta[i][j][ich] += ldt*v_eta[ich];
 
           v_eta[0] *= expfac;
-          v_eta[0] += ncfac*dt4*(imass*v[i][j]*v[i][j] - kt)/eta_mass;
+          v_eta[0] += (imass*v[i][j]*v[i][j] - kt)*ldt2m;
           v_eta[0] *= expfac;
 
           for (ich = 1; ich < mtchain; ich++) {
-            expfac = exp(-ncfac*dt8*v_eta[ich+1]);
+            expfac = exp(-ldt4*v_eta[ich+1]);
             v_eta[ich] *= expfac;
-            v_eta[ich] += ncfac*dt4*(eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)/eta_mass;
+            v_eta[ich] += (eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)*ldt2m;
             v_eta[ich] *= expfac;
           }
         }
     }
+
+  if (which == BIAS)
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit)
+        temperature->restore_bias(i, v[i]);
 }
 
 /* ----------------------------------------------------------------------
@@ -2019,7 +2051,7 @@ void FixNHMassiveMolecular::nh_v_press()
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      int imol = molindex[i] - 1;
+      int imol = molindex[i]-1;
       v[i][0] -= vcm[imol][0];
       v[i][1] -= vcm[imol][1];
       v[i][2] -= vcm[imol][2];
@@ -2040,7 +2072,7 @@ void FixNHMassiveMolecular::nh_v_press()
 
   for (int i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      int imol = molindex[i] - 1;
+      int imol = molindex[i]-1;
       v[i][0] += vcm[imol][0];
       v[i][1] += vcm[imol][1];
       v[i][2] += vcm[imol][2];
@@ -2093,7 +2125,7 @@ void FixNHMassiveMolecular::nve_v()
    perform full-step update of positions
 -----------------------------------------------------------------------*/
 
-void FixNHMassiveMolecular::nve_x()
+void FixNHMassiveMolecular::nve_x(double dtv)
 {
   double **x = atom->x;
   double **v = atom->v;
@@ -2108,38 +2140,6 @@ void FixNHMassiveMolecular::nve_x()
       x[i][0] += dtv * v[i][0];
       x[i][1] += dtv * v[i][1];
       x[i][2] += dtv * v[i][2];
-    }
-  }
-}
-
-/* ----------------------------------------------------------------------
-   perform half-step thermostat scaling of velocities
------------------------------------------------------------------------*/
-
-void FixNHMassiveMolecular::nh_v_temp()
-{
-  double **v = atom->v;
-  int *mask = atom->mask;
-  int nlocal = atom->nlocal;
-  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-
-  if (which == NOBIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-      }
-    }
-  } else if (which == BIAS) {
-    for (int i = 0; i < nlocal; i++) {
-      if (mask[i] & groupbit) {
-        temperature->remove_bias(i,v[i]);
-        v[i][0] *= factor_eta;
-        v[i][1] *= factor_eta;
-        v[i][2] *= factor_eta;
-        temperature->restore_bias(i,v[i]);
-      }
     }
   }
 }

@@ -92,6 +92,8 @@ class FixNHMassiveMolecular : public Fix {
   int mtchain;                 // length of chain
   int mtchain_default_flag;    // 1 = mtchain is default
 
+  int respa_splitting;
+
   double *etap;    // chain thermostat for barostat
   double *etap_dot;
   double *etap_dotdot;
@@ -131,13 +133,12 @@ class FixNHMassiveMolecular : public Fix {
 
   void couple();
   virtual void remap();
-  void nhc_temp_integrate();
+  void nhc_temp_integrate(double);
   void nhc_press_integrate();
 
-  virtual void nve_x();    // may be overwritten by child classes
+  virtual void nve_x(double);    // may be overwritten by child classes
   virtual void nve_v();
   virtual void nh_v_press();
-  virtual void nh_v_temp();
   virtual void compute_temp_target();
   virtual int size_restart_global();
 
