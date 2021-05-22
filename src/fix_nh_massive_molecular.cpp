@@ -657,6 +657,8 @@ void FixNHMassiveMolecular::init()
     if (idilate == -1)
       error->all(FLERR,"Fix nvt/npt/nph dilate group ID does not exist");
     dilate_group_bit = group->bitmask[idilate];
+
+    // TODO: raise error if any molecule splits into multiple groups
   }
 
   // ensure no conflict with fix deform
@@ -1091,6 +1093,7 @@ void FixNHMassiveMolecular::remap()
 
   double **x = atom->x;
   int *mask = atom->mask;
+  imageint *image = atom->image;
   int nlocal = atom->nlocal;
   double *h = domain->h;
 
@@ -1101,29 +1104,34 @@ void FixNHMassiveMolecular::remap()
   // convert pertinent atoms and rigid bodies to lamda coords
 
   pressure->compute_com();
+
   double **xcm = pressure->rcm;
   tagint *molindex = atom->molecule;
+  int bitmask = allremap ? groupbit : dilate_group_bit;
 
-  for (i = 0; i < nlocal; i++) {
-    int imol = molindex[i] - 1;
-    x[i][0] -= xcm[imol][0];
-    x[i][1] -= xcm[imol][1];
-    x[i][2] -= xcm[imol][2];
+  double delta[nlocal][3];
+  for (i = 0; i < nlocal; i++)
+    if (mask[i] & bitmask) {
+      int imol = molindex[i]-1;
+      domain->unmap(x[i], image[i], delta[i]);
+      delta[i][0] -= xcm[imol][0];
+      delta[i][1] -= xcm[imol][1];
+      delta[i][2] -= xcm[imol][2];
+      x[i][0] -= delta[i][0];
+      x[i][1] -= delta[i][1];
+      x[i][2] -= delta[i][2];
+    }
+
+  if (allremap) domain->x2lamda(nlocal);
+  else {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & dilate_group_bit)
+        domain->x2lamda(x[i],x[i]);
   }
 
-  for (int j = 0; j < pressure->nmolecules; j++)
-    domain->x2lamda(xcm[j], xcm[j]);
-
-  // if (allremap) domain->x2lamda(nlocal);
-  // else {
-  //   for (i = 0; i < nlocal; i++)
-  //     if (mask[i] & dilate_group_bit)
-  //       domain->x2lamda(x[i],x[i]);
-  // }
-
-  // if (nrigid)
-  //   for (i = 0; i < nrigid; i++)
-  //     modify->fix[rfix[i]]->deform(0);
+  if (nrigid)
+    for (i = 0; i < nrigid; i++)
+      modify->fix[rfix[i]]->deform(0);
 
   // reset global and local box to new size/shape
 
@@ -1261,26 +1269,24 @@ void FixNHMassiveMolecular::remap()
 
   // convert pertinent atoms and rigid bodies back to box coords
 
-  for (int j = 0; j < pressure->nmolecules; j++)
-    domain->lamda2x(xcm[j], xcm[j]);
-
-  for (i = 0; i < nlocal; i++) {
-    int imol = molindex[i] - 1;
-    x[i][0] += xcm[imol][0];
-    x[i][1] += xcm[imol][1];
-    x[i][2] += xcm[imol][2];
+  if (allremap) domain->lamda2x(nlocal);
+  else {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & dilate_group_bit)
+        domain->lamda2x(x[i],x[i]);
   }
 
-  // if (allremap) domain->lamda2x(nlocal);
-  // else {
-  //   for (i = 0; i < nlocal; i++)
-  //     if (mask[i] & dilate_group_bit)
-  //       domain->lamda2x(x[i],x[i]);
-  // }
-  //
-  // if (nrigid)
-  //   for (i = 0; i < nrigid; i++)
-  //     modify->fix[rfix[i]]->deform(1);
+  for (i = 0; i < nlocal; i++)
+    if (mask[i] & bitmask) {
+      int imol = molindex[i]-1;
+      x[i][0] += delta[i][0];
+      x[i][1] += delta[i][1];
+      x[i][2] += delta[i][2];
+    }
+
+  if (nrigid)
+    for (i = 0; i < nrigid; i++)
+      modify->fix[rfix[i]]->deform(1);
 }
 
 /* ----------------------------------------------------------------------
@@ -2443,8 +2449,7 @@ void FixNHMassiveMolecular::pre_exchange()
 double FixNHMassiveMolecular::memory_usage()
 {
   double bytes = (double)atom->nmax * 3 * (2*mtchain+1) * sizeof(double);
-  if (irregular)
-    bytes += irregular->memory_usage();
+  if (irregular) bytes += irregular->memory_usage();
   return bytes;
 }
 
@@ -2454,7 +2459,6 @@ double FixNHMassiveMolecular::memory_usage()
 
 void FixNHMassiveMolecular::grow_arrays(int nmax)
 {
-
   memory->grow(eta, nmax, 3, mtchain, "fix_nh_massive_Molecular:eta");
   memory->grow(eta_dot, nmax, 3, mtchain+1, "fix_nh_massive_Molecular:eta_dot");
 }
@@ -2465,7 +2469,6 @@ void FixNHMassiveMolecular::grow_arrays(int nmax)
 
 void FixNHMassiveMolecular::copy_arrays(int i, int j, int /*delflag*/)
 {
-
   for (int ich = 0; ich < mtchain; ich++) {
     eta[j][0][ich] = eta[i][0][ich];
     eta[j][1][ich] = eta[i][1][ich];
@@ -2483,7 +2486,6 @@ void FixNHMassiveMolecular::copy_arrays(int i, int j, int /*delflag*/)
 
 int FixNHMassiveMolecular::pack_exchange(int i, double *buf)
 {
-
   int n = 0;
   for (int ich = 0; ich < mtchain; ich++) {
     buf[n++] = eta[i][0][ich];
@@ -2503,7 +2505,6 @@ int FixNHMassiveMolecular::pack_exchange(int i, double *buf)
 
 int FixNHMassiveMolecular::unpack_exchange(int nlocal, double *buf)
 {
-
   int n = 0;
   for (int ich = 0; ich < mtchain; ich++) {
     eta[nlocal][0][ich] = buf[n++];
