@@ -108,6 +108,8 @@ class FixNHMassiveMolecular : public Fix {
   double regulation_parameter;
   double *umax;
 
+  int internal_vscaling_flag;
+
   double *etap;    // chain thermostat for barostat
   double *etap_dot;
   double *etap_dotdot;

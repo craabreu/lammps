@@ -107,6 +107,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   gamma_temp_default_flag = 1;
   gamma_press_default_flag = 1;
   umax = nullptr;
+  internal_vscaling_flag = 1;
 
   // turn on tilt factor scaling, whenever applicable
 
@@ -415,6 +416,12 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"yes") == 0) adjust_v0_flag = 1;
       else if (strcmp(arg[iarg+1],"no") == 0) adjust_v0_flag = 0;
+      else error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"vscaling") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"internal") == 0) internal_vscaling_flag = 1;
+      else if (strcmp(arg[iarg+1],"external") == 0) internal_vscaling_flag = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -991,7 +998,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
   if (pstat_flag) {
     compute_press_target();
     nh_omega_dot();
-    nh_v_press();
+    if (!internal_vscaling_flag) nh_v_press();
   }
 
   nve_v();
@@ -1040,7 +1047,7 @@ void FixNHMassiveMolecular::end_of_step()
   if (which == BIAS && neighbor->ago == 0)
     t_current = temperature->compute_scalar();
 
-  if (pstat_flag) nh_v_press();
+  if (pstat_flag && !internal_vscaling_flag) nh_v_press();
 
   // compute new T,P after velocities rescaled by nh_v_press()
   // compute appropriately coupled elements of mvv_current
@@ -1113,7 +1120,7 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
     if (pstat_flag) {
       compute_press_target();
       nh_omega_dot();
-      nh_v_press();
+      if (!internal_vscaling_flag) nh_v_press();
     }
   }
 
@@ -1420,6 +1427,8 @@ void FixNHMassiveMolecular::remap()
   if (nrigid)
     for (i = 0; i < nrigid; i++)
       modify->fix[rfix[i]]->deform(1);
+
+  if (internal_vscaling_flag) nh_v_press();
 }
 
 /* ----------------------------------------------------------------------
@@ -2286,9 +2295,10 @@ void FixNHMassiveMolecular::nh_v_press()
       if (mask[i] & groupbit)
         temperature->remove_bias(i, v[i]);
 
-  factor[0] = exp(-dt4*(omega_dot[0]+mtk_term2));
-  factor[1] = exp(-dt4*(omega_dot[1]+mtk_term2));
-  factor[2] = exp(-dt4*(omega_dot[2]+mtk_term2));
+  double mdt4 = -0.5*dthalf;
+  factor[0] = exp(mdt4*(omega_dot[0]+mtk_term2));
+  factor[1] = exp(mdt4*(omega_dot[1]+mtk_term2));
+  factor[2] = exp(mdt4*(omega_dot[2]+mtk_term2));
 
   temperature->compute_com();
   double **vcm = temperature->vcm;
