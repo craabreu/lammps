@@ -642,6 +642,8 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   }
 
   if (langevin_flag) {
+    if (mtchain > 1)
+      error->all(FLERR,"Nose-Hoover-Langevin uses tchain = 1");
     // each proc follows its own RN sequence
     random_temp = new RanMars(lmp, seed + 257 + 139*comm->me);
     for (int i = 0; i < 100; i++) random_temp->uniform();
@@ -976,7 +978,8 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
   if (tstat_flag) {
     compute_temp_target();
     if (scheme == SIDE) {
-      nhc_temp_integrate(dthalf);
+      if (langevin_flag) nhl_temp_integrate(dthalf);
+      else nhc_temp_integrate(dthalf);
       if (pstat_flag) {
         if (pstyle == ISO) temperature->compute_scalar();
         else temperature->compute_vector();
@@ -999,7 +1002,8 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (tstat_flag && scheme == MIDDLE) {
     nve_x(dthalf);
-    nhc_temp_integrate(dtv);
+    if (langevin_flag) nhl_temp_integrate(dtv);
+    else nhc_temp_integrate(dtv);
     nve_x(dthalf);
   }
   else
@@ -1063,7 +1067,10 @@ void FixNHMassiveMolecular::end_of_step()
   // update eta_dot
   // update eta_press_dot
 
-  if (tstat_flag && scheme == SIDE) nhc_temp_integrate(dthalf);
+  if (tstat_flag && scheme == SIDE) {
+    if (langevin_flag) nhl_temp_integrate(dthalf);
+    else nhc_temp_integrate(dthalf);
+  }
   if (pstat_flag && mpchain) nhc_press_integrate();
 }
 
@@ -1093,7 +1100,8 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
     if (tstat_flag) {
       compute_temp_target();
       if (scheme == SIDE) {
-        nhc_temp_integrate(dthalf);
+        if (langevin_flag) nhl_temp_integrate(dthalf);
+        else nhc_temp_integrate(dthalf);
         if (pstat_flag) {
           if (pstyle == ISO) temperature->compute_scalar();
           else temperature->compute_vector();
@@ -1118,7 +1126,8 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
     if (pstat_flag) remap();
     if (tstat_flag && scheme == MIDDLE) {
       nve_x(dthalf);
-      nhc_temp_integrate(dtv);
+      if (langevin_flag) nhl_temp_integrate(dtv);
+      else nhc_temp_integrate(dtv);
       nve_x(dthalf);
     }
     else
@@ -1964,7 +1973,9 @@ void *FixNHMassiveMolecular::extract(const char *str, int &dim)
 void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 {
   int i, j, iloop, ich;
-  double expfac, vfactor, imass, *v_eta;
+  double expfac, imass, mass_uij, mass_umax, umax_inv, mvv;
+  double *v_eta;
+
   double kt = boltz * t_target;
 
   // Update masses, to preserve initial freq, if flag set
@@ -1989,13 +2000,6 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
   double ldt2 = 0.5*ldt;
   double ldt2m = ldt2/eta_mass;
   double ldt4 = 0.25*ldt;
-  double mass_uij, mass_umax, umax_inv;
-  double a, b;
-  if (langevin_flag) {
-    a = exp(-gamma_temp*ldt);
-    b = sqrt((1.0-a*a)*kt/eta_mass);
-  }
-  double mvv;
   for (i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
@@ -2026,18 +2030,10 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
           v_eta[0] *= tdrag_factor;
           v_eta[0] *= expfac;
 
-          if (langevin_flag) {
-            vfactor = exp(-ldt2*v_eta[0]);
-            v_eta[mtchain-1] *= a;
-            v_eta[mtchain-1] += b*random_temp->gaussian();
-            v[i][j] *= vfactor*exp(-ldt2*v_eta[0]);
-          }
-          else {
-            v[i][j] *= exp(-ldt*v_eta[0]);
+          v[i][j] *= exp(-ldt*v_eta[0]);
 
-            for (ich = 0; ich < mtchain; ich++)
-              eta[i][j][ich] += ldt*v_eta[ich];
-          }
+          for (ich = 0; ich < mtchain; ich++)
+            eta[i][j][ich] += ldt*v_eta[ich];
 
           if (regulation_flag)
             mvv = mass_umax*tanh(v[i][j]*umax_inv)*v[i][j];
@@ -2060,6 +2056,88 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 
   if (which == BIAS)
     for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit)
+        temperature->restore_bias(i, v[i]);
+}
+
+/* ----------------------------------------------------------------------
+   perform half-step update of chain thermostat variables
+------------------------------------------------------------------------- */
+
+void FixNHMassiveMolecular::nhl_temp_integrate(double dt)
+{
+  double kt = boltz * t_target;
+
+  // Update masses, to preserve initial freq, if flag set
+
+  if (eta_mass_flag)
+    eta_mass = kt / (t_freq*t_freq);
+
+  double **v = atom->v;
+  double *rmass = atom->rmass;
+  double *mass = atom->mass;
+  int *type = atom->type;
+  int *mask = atom->mask;
+  int nlocal = atom->nlocal;
+  if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+  if (which == BIAS)
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit)
+        temperature->remove_bias(i, v[i]);
+
+  double ldt = dt/nc_tchain;
+  double ldt2 = 0.5*ldt;
+  double ldt2m = ldt2/eta_mass;
+  double a = exp(-gamma_temp*ldt);
+  double b = sqrt((1.0-a*a)*kt/eta_mass);
+
+  if (regulation_flag) {
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double mass_umax = mvv2e*(rmass ? rmass[i] : mass[type[i]])*umax[i];
+        double umax_inv = 1.0/umax[i];
+        for (int j = 0; j < 3; j++) {
+          double v_eta = eta_dot[i][j][0];
+          double vij = v[i][j];
+          double delta = (mass_umax*tanh(vij*umax_inv)*vij - kt)*ldt2m;
+          for (int iloop = 0; iloop < nc_tchain; iloop++) {
+            v_eta = tdrag_factor*(v_eta + delta);
+            vij *= exp(-ldt2*v_eta);
+            v_eta = a*v_eta + b*random_temp->gaussian();
+            vij *= exp(-ldt2*v_eta);
+            delta = (mass_umax*tanh(vij*umax_inv)*vij - kt)*ldt2m;
+            v_eta += delta;
+          }
+          eta_dot[i][j][0] = v_eta;
+          v[i][j] = vij;
+        }
+      }
+  }
+  else {
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
+        for (int j = 0; j < 3; j++) {
+          double v_eta = eta_dot[i][j][0];
+          double vij = v[i][j];
+          double delta = (imass*vij*vij - kt)*ldt2m;
+          for (int iloop = 0; iloop < nc_tchain; iloop++) {
+            v_eta = tdrag_factor*(v_eta + delta);
+            vij *= exp(-ldt2*v_eta);
+            v_eta = a*v_eta + b*random_temp->gaussian();
+            vij *= exp(-ldt2*v_eta);
+            delta = (imass*vij*vij - kt)*ldt2m;
+            v_eta += delta;
+          }
+          eta_dot[i][j][0] = v_eta;
+          v[i][j] = vij;
+        }
+      }
+  }
+
+  if (which == BIAS)
+    for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit)
         temperature->restore_bias(i, v[i]);
 }

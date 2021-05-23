@@ -148,6 +148,7 @@ class FixNHMassiveMolecular : public Fix {
   void couple();
   virtual void remap();
   void nhc_temp_integrate(double);
+  void nhl_temp_integrate(double);
   void nhc_press_integrate();
 
   virtual void nve_x(double);    // may be overwritten by child classes
