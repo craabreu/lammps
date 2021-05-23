@@ -37,7 +37,11 @@ FixNPTMassiveMolecular::FixNPTMassiveMolecular(LAMMPS *lmp, int narg, char **arg
   // and thus its KE/temperature contribution should use group all
 
   id_temp = utils::strdup(std::string(id) + "_temp");
-  modify->add_compute(fmt::format("{} all temp/molecular",id_temp));
+  if (regulation_flag)
+    modify->add_compute(fmt::format("{} all temp/molecular regulation {} {}",
+                                    id_temp, regulation_parameter, t_target));
+  else
+    modify->add_compute(fmt::format("{} all temp/molecular",id_temp));
 
   tcomputeflag = 1;
 

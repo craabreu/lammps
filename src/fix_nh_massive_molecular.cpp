@@ -58,9 +58,8 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   Fix(lmp, narg, arg),
   rfix(nullptr), id_dilate(nullptr), irregular(nullptr),
   id_temp(nullptr), id_press(nullptr),
-  eta(nullptr), eta_dot(nullptr),
-  etap(nullptr), etap_dot(nullptr), etap_dotdot(nullptr),
-  etap_mass(nullptr)
+  eta(nullptr), eta_dot(nullptr), umax(nullptr),
+  etap(nullptr), etap_dot(nullptr), etap_dotdot(nullptr), etap_mass(nullptr)
 {
   if (narg < 4) error->all(FLERR,"Illegal fix nvt/npt/nph command");
 
@@ -101,8 +100,10 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
 
   scheme = MIDDLE;
   langevin_flag = 1;
+  regulation_default_flag = 1;
   gamma_temp_default_flag = 1;
   gamma_press_default_flag = 1;
+  umax = nullptr;
 
   // turn on tilt factor scaling, whenever applicable
 
@@ -399,6 +400,15 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       gamma_press = utils::numeric(FLERR, arg[iarg+1], false, lmp);
       if (gamma_press <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
+    } else if (strcmp(arg[iarg],"regulation") == 0) {
+        if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+        regulation_default_flag = 0;
+        regulation_flag = strcmp(arg[iarg+1],"none") != 0;
+        if (regulation_flag)
+          regulation_parameter = utils::numeric(FLERR, arg[iarg+1], false, lmp);
+        if (regulation_parameter <= 0.0)
+          error->all(FLERR,"Illegal fix nvt/npt/nph command");
+        iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
@@ -508,6 +518,14 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   // check that ptemp is not defined with a thermostat
   if (tstat_flag && p_temp_flag)
     error->all(FLERR,"Thermostat in fix nvt/npt/nph is incompatible with ptemp command");
+
+  // set regulation default or check that thermostat is on
+  if (regulation_default_flag) {
+    regulation_flag = tstat_flag;
+    regulation_parameter = 2;
+  }
+  else if (!tstat_flag)
+    error->all(FLERR,"Regulation in fix nvt/npt/nph requires thermostatting");
 
   // set pstat_flag and box change and restart_pbc variables
 
@@ -655,6 +673,7 @@ FixNHMassiveMolecular::~FixNHMassiveMolecular()
   if (tstat_flag) {
     memory->destroy(eta);
     memory->destroy(eta_dot);
+    if (regulation_flag) memory->destroy(umax);
   }
 
   if (langevin_flag) {
@@ -776,7 +795,7 @@ void FixNHMassiveMolecular::init()
 
   boltz = force->boltz;
   nktv2p = force->nktv2p;
-
+  mvv2e = force->mvv2e;
 
   if (force->kspace) kspace_flag = 1;
   else kspace_flag = 0;
@@ -864,6 +883,20 @@ void FixNHMassiveMolecular::setup(int /*vflag*/)
 
   if (tstat_flag)
     eta_mass = boltz * t_target / (t_freq*t_freq);
+
+  if (regulation_flag) {
+    int *mask = atom->mask;
+    double *rmass = atom->rmass;
+    double *mass = atom->mass;
+    int *type = atom->type;
+    int nlocal = atom->nlocal;
+    double Lkt = regulation_parameter * boltz * t_target / mvv2e;
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double massone = rmass ? rmass[i] : mass[type[i]];
+        umax[i] = sqrt(Lkt/massone);
+      }
+  }
 
   // masses and initial forces on barostat variables
 
@@ -1902,6 +1935,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
   double ldt2 = 0.5*ldt;
   double ldt2m = ldt2/eta_mass;
   double ldt4 = 0.25*ldt;
+  double mass_uij, mass_umax, umax_inv;
   double a, b;
   if (langevin_flag) {
     a = exp(-gamma_temp*ldt);
@@ -1909,10 +1943,13 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
   }
   for (i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
-      imass = force->mvv2e*(rmass ? rmass[i] : mass[type[i]]);
-      for (iloop = 0; iloop < nc_tchain; iloop++)
-        for (j = 0; j < 3; j++) {
-          v_eta = eta_dot[i][j];
+      imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
+      mass_umax = imass*umax[i];
+      umax_inv = 1.0/umax[i];
+      for (j = 0; j < 3; j++) {
+        v_eta = eta_dot[i][j];
+        mass_uij = regulation_flag ? mass_umax*tanh(v[i][j]/umax[i]) : imass*v[i][j];
+        for (iloop = 0; iloop < nc_tchain; iloop++) {
 
           for (ich = mtchain-1; ich > 0; ich--) {
             expfac = exp(-ldt4*v_eta[ich+1]);
@@ -1924,7 +1961,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 
           expfac = exp(-ldt4*v_eta[1]);
           v_eta[0] *= expfac;
-          v_eta[0] += (imass*v[i][j]*v[i][j] - kt)*ldt2m;
+          v_eta[0] += (v[i][j]*mass_uij - kt)*ldt2m;
           v_eta[0] *= tdrag_factor;
           v_eta[0] *= expfac;
 
@@ -1940,12 +1977,13 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
           // rescale velocity
 
           v[i][j] *= vfactor;
+          mass_uij = regulation_flag ? mass_umax*tanh(v[i][j]/umax[i]) : imass*v[i][j];
 
           for (ich = 0; ich < mtchain; ich++)
             eta[i][j][ich] += ldt*v_eta[ich];
 
           v_eta[0] *= expfac;
-          v_eta[0] += (imass*v[i][j]*v[i][j] - kt)*ldt2m;
+          v_eta[0] += (v[i][j]*mass_uij - kt)*ldt2m;
           v_eta[0] *= expfac;
 
           for (ich = 1; ich < mtchain; ich++) {
@@ -1955,6 +1993,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
             v_eta[ich] *= expfac;
           }
         }
+      }
     }
 
   if (which == BIAS)
@@ -2201,13 +2240,22 @@ void FixNHMassiveMolecular::nve_x(double dtv)
 
   // x update by full step only for atoms in group
 
-  for (int i = 0; i < nlocal; i++) {
-    if (mask[i] & groupbit) {
-      x[i][0] += dtv * v[i][0];
-      x[i][1] += dtv * v[i][1];
-      x[i][2] += dtv * v[i][2];
-    }
-  }
+  if (regulation_flag)
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double dtv_umax = dtv * umax[i];
+        double umax_inv = 1.0/umax[i];
+        x[i][0] += dtv_umax * tanh(v[i][0]*umax_inv);
+        x[i][1] += dtv_umax * tanh(v[i][1]*umax_inv);
+        x[i][2] += dtv_umax * tanh(v[i][2]*umax_inv);
+      }
+  else
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        x[i][0] += dtv * v[i][0];
+        x[i][1] += dtv * v[i][1];
+        x[i][2] += dtv * v[i][2];
+      }
 }
 
 /* ----------------------------------------------------------------------
@@ -2515,6 +2563,7 @@ void FixNHMassiveMolecular::pre_exchange()
 double FixNHMassiveMolecular::memory_usage()
 {
   double bytes = (double)atom->nmax * 3 * (2*mtchain+1) * sizeof(double);
+  if (regulation_flag) bytes += (double)atom->nmax * sizeof(double);
   if (irregular) bytes += irregular->memory_usage();
   return bytes;
 }
@@ -2525,8 +2574,10 @@ double FixNHMassiveMolecular::memory_usage()
 
 void FixNHMassiveMolecular::grow_arrays(int nmax)
 {
-  memory->grow(eta, nmax, 3, mtchain, "fix_nh_massive_Molecular:eta");
-  memory->grow(eta_dot, nmax, 3, mtchain+1, "fix_nh_massive_Molecular:eta_dot");
+  memory->grow(eta, nmax, 3, mtchain, "fix_nh_massive_molecular:eta");
+  memory->grow(eta_dot, nmax, 3, mtchain+1, "fix_nh_massive_molecular:eta_dot");
+  if (regulation_flag)
+    memory->grow(umax, nmax, "fix_nh_massive_molecular:umax");
 }
 
 /* ----------------------------------------------------------------------
@@ -2544,6 +2595,7 @@ void FixNHMassiveMolecular::copy_arrays(int i, int j, int /*delflag*/)
     eta_dot[j][1][ich] = eta_dot[i][1][ich];
     eta_dot[j][2][ich] = eta_dot[i][2][ich];
   }
+  if (regulation_flag) umax[j] = umax[i];
 }
 
 /* ----------------------------------------------------------------------
@@ -2562,6 +2614,7 @@ int FixNHMassiveMolecular::pack_exchange(int i, double *buf)
     buf[n++] = eta_dot[i][1][ich];
     buf[n++] = eta_dot[i][2][ich];
   }
+  if (regulation_flag) buf[n++] = umax[i];
   return n;
 }
 
@@ -2581,5 +2634,6 @@ int FixNHMassiveMolecular::unpack_exchange(int nlocal, double *buf)
     eta_dot[nlocal][1][ich] = buf[n++];
     eta_dot[nlocal][2][ich] = buf[n++];
   }
+  if (regulation_flag) umax[nlocal] = buf[n++];
   return n;
 }

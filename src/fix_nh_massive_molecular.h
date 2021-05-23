@@ -49,7 +49,7 @@ class FixNHMassiveMolecular : public Fix {
  protected:
   int dimension, which;
   double dtv, dtf, dthalf, dt4, dt8, dto;
-  double boltz, nktv2p, tdof, tempfactor;
+  double boltz, nktv2p, mvv2e, tdof, tempfactor;
   double vol0;    // reference volume
   double t0;      // reference temperature
                   // used for barostat mass
@@ -102,6 +102,11 @@ class FixNHMassiveMolecular : public Fix {
   double gamma_temp, gamma_press;
   class RanMars *random_temp, *random_press;
   double **v_eta;
+
+  int regulation_default_flag;
+  int regulation_flag;
+  double regulation_parameter;
+  double *umax;
 
   double *etap;    // chain thermostat for barostat
   double *etap_dot;
