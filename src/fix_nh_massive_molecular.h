@@ -49,7 +49,7 @@ class FixNHMassiveMolecular : public Fix {
  protected:
   int dimension, which;
   double dtv, dtf, dthalf, dt4, dt8, dto;
-  double boltz, nktv2p, tdof;
+  double boltz, nktv2p, tdof, tempfactor;
   double vol0;    // reference volume
   double t0;      // reference temperature
                   // used for barostat mass
@@ -93,7 +93,7 @@ class FixNHMassiveMolecular : public Fix {
   int mtchain;                 // length of chain
   int mtchain_default_flag;    // 1 = mtchain is default
 
-  int respa_splitting;
+  int scheme;
 
   int langevin_flag;
   int seed;

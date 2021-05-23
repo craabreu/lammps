@@ -39,11 +39,6 @@ FixNPTMassiveMolecular::FixNPTMassiveMolecular(LAMMPS *lmp, int narg, char **arg
   id_temp = utils::strdup(std::string(id) + "_temp");
   modify->add_compute(fmt::format("{} all temp/molecular",id_temp));
 
-  // char **newarg = new char*[2];
-  // newarg[0] = (char *) "extra/dof";
-  // newarg[1] = (char *) "0";
-  // modify->compute[modify->ncompute-1]->modify_params(2, newarg);
-
   tcomputeflag = 1;
 
   // create a new compute pressure style
@@ -51,6 +46,6 @@ FixNPTMassiveMolecular::FixNPTMassiveMolecular(LAMMPS *lmp, int narg, char **arg
   // pass id_temp as 4th arg to pressure constructor
 
   id_press = utils::strdup(std::string(id) + "_press");
-  modify->add_compute(fmt::format("{} all pressure/molecular {}",id_press, id_temp));
+  modify->add_compute(fmt::format("{} all pressure/molecular NULL",id_press));
   pcomputeflag = 1;
 }

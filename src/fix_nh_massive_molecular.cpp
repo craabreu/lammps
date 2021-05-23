@@ -48,7 +48,7 @@ using namespace FixConst;
 enum{NOBIAS,BIAS};
 enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
-enum{XO_RESPA,MIDDLE_RESPA};
+enum{SIDE,MIDDLE};
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -99,7 +99,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   id_temp = nullptr;
   id_press = nullptr;
 
-  respa_splitting = MIDDLE_RESPA;
+  scheme = MIDDLE;
   langevin_flag = 1;
   gamma_temp_default_flag = 1;
   gamma_press_default_flag = 1;
@@ -381,10 +381,10 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
     } else if (strcmp(arg[iarg],"ext") == 0) {
       iarg += 2;
 
-    } else if (strcmp(arg[iarg],"respa_splitting") == 0) {
+    } else if (strcmp(arg[iarg],"scheme") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
-      if (strcmp(arg[iarg+1],"middle") == 0) respa_splitting = MIDDLE_RESPA;
-      else if (strcmp(arg[iarg+1],"xo-respa") == 0) respa_splitting = XO_RESPA;
+      if (strcmp(arg[iarg+1],"middle") == 0) scheme = MIDDLE;
+      else if (strcmp(arg[iarg+1],"side") == 0) scheme = SIDE;
       iarg += 2;
     } else if (strcmp(arg[iarg],"gamma_temp") == 0) {
         if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -777,6 +777,7 @@ void FixNHMassiveMolecular::init()
   boltz = force->boltz;
   nktv2p = force->nktv2p;
 
+
   if (force->kspace) kspace_flag = 1;
   else kspace_flag = 0;
 
@@ -820,6 +821,7 @@ void FixNHMassiveMolecular::setup(int /*vflag*/)
 
   t_current = temperature->compute_scalar();
   tdof = temperature->dof;
+  tempfactor = tdof * boltz * nktv2p / dimension;
 
   // t_target is needed by NVT and NPT in compute_scalar()
   // If no thermostat or using fix nphug,
@@ -907,23 +909,14 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (tstat_flag) {
     compute_temp_target();
-    if (respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
-  }
-
-  // need to recompute pressure to account for change in KE
-  // t_current is up-to-date, but compute_temperature is not
-  // compute appropriately coupled elements of mvv_current
-
-  if (pstat_flag) {
-    if (pstyle == ISO) {
-      temperature->compute_scalar();
-      pressure->compute_scalar();
-    } else {
-      temperature->compute_vector();
-      pressure->compute_vector();
+    if (scheme == SIDE) {
+      nhc_temp_integrate(dthalf);
+      if (pstat_flag) {
+        if (pstyle == ISO) temperature->compute_scalar();
+        else temperature->compute_vector();
+        couple();
+      }
     }
-    couple();
-    pressure->addstep(update->ntimestep+1);
   }
 
   if (pstat_flag) {
@@ -938,7 +931,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) remap();
 
-  if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+  if (tstat_flag && scheme == MIDDLE) {
     nve_x(dthalf);
     nhc_temp_integrate(dtv);
     nve_x(dthalf);
@@ -962,7 +955,12 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 void FixNHMassiveMolecular::final_integrate()
 {
   nve_v();
+}
 
+/* ---------------------------------------------------------------------- */
+
+void FixNHMassiveMolecular::end_of_step()
+{
   // re-compute temp before nh_v_press()
   // only needed for temperature computes with BIAS on reneighboring steps:
   //   b/c some biases store per-atom values (e.g. temp/profile)
@@ -979,12 +977,7 @@ void FixNHMassiveMolecular::final_integrate()
 
   t_current = temperature->compute_scalar();
   tdof = temperature->dof;
-}
 
-/* ---------------------------------------------------------------------- */
-
-void FixNHMassiveMolecular::end_of_step()
-{
   // need to recompute pressure to account for change in KE
   // t_current is up-to-date, but compute_temperature is not
   // compute appropriately coupled elements of mvv_current
@@ -1004,7 +997,7 @@ void FixNHMassiveMolecular::end_of_step()
   // update eta_dot
   // update eta_press_dot
 
-  if (tstat_flag && respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
+  if (tstat_flag && scheme == SIDE) nhc_temp_integrate(dthalf);
   if (pstat_flag && mpchain) nhc_press_integrate();
 }
 
@@ -1033,23 +1026,14 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
 
     if (tstat_flag) {
       compute_temp_target();
-      if (respa_splitting == XO_RESPA) nhc_temp_integrate(dthalf);
-    }
-
-    // recompute pressure to account for change in KE
-    // t_current is up-to-date, but compute_temperature is not
-    // compute appropriately coupled elements of mvv_current
-
-    if (pstat_flag) {
-      if (pstyle == ISO) {
-        temperature->compute_scalar();
-        pressure->compute_scalar();
-      } else {
-        temperature->compute_vector();
-        pressure->compute_vector();
+      if (scheme == SIDE) {
+        nhc_temp_integrate(dthalf);
+        if (pstat_flag) {
+          if (pstyle == ISO) temperature->compute_scalar();
+          else temperature->compute_vector();
+          couple();
+        }
       }
-      couple();
-      pressure->addstep(update->ntimestep+1);
     }
 
     if (pstat_flag) {
@@ -1057,17 +1041,16 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
       nh_omega_dot();
       nh_v_press();
     }
+  }
 
-    nve_v();
-
-  } else nve_v();
+  nve_v();
 
   // innermost level - also update x only for atoms in group
   // if barostat, perform 1/2 step remap before and after
 
   if (ilevel == 0) {
     if (pstat_flag) remap();
-    if (tstat_flag && respa_splitting == MIDDLE_RESPA) {
+    if (tstat_flag && scheme == MIDDLE) {
       nve_x(dthalf);
       nhc_temp_integrate(dtv);
       nve_x(dthalf);
@@ -1096,18 +1079,28 @@ void FixNHMassiveMolecular::final_integrate_respa(int ilevel, int /*iloop*/)
   // outermost level - update eta_dot and omega_dot, apply via final_integrate
   // all other levels - NVE update of v
 
-  if (ilevel == nlevels_respa-1) final_integrate();
-  else nve_v();
+  nve_v();
 }
 
 /* ---------------------------------------------------------------------- */
 
 void FixNHMassiveMolecular::couple()
 {
-  double *tensor = pressure->vector;
+  double inv_volume, scalar, tensor[6];
+
+  if (dimension == 3)
+    inv_volume = 1.0 / (domain->xprd*domain->yprd*domain->zprd);
+  else
+    inv_volume = 1.0 / (domain->xprd*domain->yprd);
 
   if (pstyle == ISO)
-    p_current[0] = p_current[1] = p_current[2] = pressure->scalar;
+    scalar = pressure->scalar + tempfactor*temperature->scalar*inv_volume;
+  else
+    for (int i = 0; i < 6; i++)
+      tensor[i] = pressure->vector[i] + temperature->vector[i]*inv_volume*nktv2p;
+
+  if (pstyle == ISO)
+    p_current[0] = p_current[1] = p_current[2] = scalar;
   else if (pcouple == XYZ) {
     double ave = 1.0/3.0 * (tensor[0] + tensor[1] + tensor[2]);
     p_current[0] = p_current[1] = p_current[2] = ave;
