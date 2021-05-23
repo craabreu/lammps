@@ -642,9 +642,11 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   }
 
   if (langevin_flag) {
+    // each proc follows its own RN sequence
     random_temp = new RanMars(lmp, seed + 257 + 139*comm->me);
     for (int i = 0; i < 100; i++) random_temp->uniform();
     if (pstat_flag) {
+      // all procs follow the same RN sequence
       random_press = new RanMars(lmp, seed);
       for (int i = 0; i < 100; i++) random_press->uniform();
     }
@@ -685,8 +687,8 @@ FixNHMassiveMolecular::~FixNHMassiveMolecular()
   }
 
   if (langevin_flag) {
-    delete [] random_temp;
-    if (pstat_flag) delete [] random_press;
+    delete random_temp;
+    if (pstat_flag) delete random_press;
   }
 
   if (pstat_flag) {
@@ -857,7 +859,6 @@ void FixNHMassiveMolecular::init()
       double **v = atom->v;
       double factor = 1.0;
       double stored = 0.0;
-      double sum_vu, sum_vu_all;
       while (fabs(factor - stored) > 1E-6) {
         stored = factor;
         double sum_vu = 0.0;
@@ -866,6 +867,7 @@ void FixNHMassiveMolecular::init()
           for (int j = 0; j < 3; j++)
             sum_vu += mass_umax*v[i][j]*tanh(factor*v[i][j]/umax[i]);
         }
+        double sum_vu_all;
         MPI_Allreduce(&sum_vu, &sum_vu_all, 1, MPI_DOUBLE, MPI_SUM, world);
         factor = 3*atom->natoms*kt/sum_vu_all;
       }
