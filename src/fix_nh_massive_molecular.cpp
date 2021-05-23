@@ -684,11 +684,10 @@ FixNHMassiveMolecular::~FixNHMassiveMolecular()
     memory->destroy(eta);
     memory->destroy(eta_dot);
     if (regulation_flag) memory->destroy(umax);
-  }
-
-  if (langevin_flag) {
-    delete random_temp;
-    if (pstat_flag) delete random_press;
+    if (langevin_flag) {
+      delete random_temp;
+      if (pstat_flag) delete random_press;
+    }
   }
 
   if (pstat_flag) {
@@ -1996,27 +1995,34 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
     a = exp(-gamma_temp*ldt);
     b = sqrt((1.0-a*a)*kt/eta_mass);
   }
+  double mvv;
   for (i = 0; i < nlocal; i++)
     if (mask[i] & groupbit) {
       imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
-      mass_umax = imass*umax[i];
-      umax_inv = 1.0/umax[i];
+      if (regulation_flag) {
+        mass_umax = imass*umax[i];
+        umax_inv = 1.0/umax[i];
+      }
       for (j = 0; j < 3; j++) {
         v_eta = eta_dot[i][j];
-        mass_uij = regulation_flag ? mass_umax*tanh(v[i][j]/umax[i]) : imass*v[i][j];
+
+        if (regulation_flag)
+          mvv = mass_umax*tanh(v[i][j]*umax_inv)*v[i][j];
+        else
+          mvv = imass*v[i][j]*v[i][j];
+
         for (iloop = 0; iloop < nc_tchain; iloop++) {
 
           for (ich = mtchain-1; ich > 0; ich--) {
             expfac = exp(-ldt4*v_eta[ich+1]);
             v_eta[ich] *= expfac;
-            v_eta[ich] += (eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)*ldt2m;
-            v_eta[ich] *= tdrag_factor;
-            v_eta[ich] *= expfac;
+            v_eta[ich] += (v_eta[ich-1]*v_eta[ich-1] - kt/eta_mass)*ldt2;
+            v_eta[ich] *= tdrag_factor*expfac;
           }
 
           expfac = exp(-ldt4*v_eta[1]);
           v_eta[0] *= expfac;
-          v_eta[0] += (v[i][j]*mass_uij - kt)*ldt2m;
+          v_eta[0] += (mvv - kt)*ldt2m;
           v_eta[0] *= tdrag_factor;
           v_eta[0] *= expfac;
 
@@ -2024,21 +2030,22 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
             vfactor = exp(-ldt2*v_eta[0]);
             v_eta[mtchain-1] *= a;
             v_eta[mtchain-1] += b*random_temp->gaussian();
-            vfactor *= exp(-ldt2*v_eta[0]);
+            v[i][j] *= vfactor*exp(-ldt2*v_eta[0]);
           }
+          else {
+            v[i][j] *= exp(-ldt*v_eta[0]);
+
+            for (ich = 0; ich < mtchain; ich++)
+              eta[i][j][ich] += ldt*v_eta[ich];
+          }
+
+          if (regulation_flag)
+            mvv = mass_umax*tanh(v[i][j]*umax_inv)*v[i][j];
           else
-            vfactor = exp(-ldt*v_eta[0]);
-
-          // rescale velocity
-
-          v[i][j] *= vfactor;
-          mass_uij = regulation_flag ? mass_umax*tanh(v[i][j]/umax[i]) : imass*v[i][j];
-
-          for (ich = 0; ich < mtchain; ich++)
-            eta[i][j][ich] += ldt*v_eta[ich];
+            mvv = imass*v[i][j]*v[i][j];
 
           v_eta[0] *= expfac;
-          v_eta[0] += (v[i][j]*mass_uij - kt)*ldt2m;
+          v_eta[0] += (mvv - kt)*ldt2m;
           v_eta[0] *= expfac;
 
           for (ich = 1; ich < mtchain; ich++) {
@@ -2295,22 +2302,24 @@ void FixNHMassiveMolecular::nve_x(double dtv)
 
   // x update by full step only for atoms in group
 
-  if (regulation_flag)
+  if (regulation_flag) {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         double dtv_umax = dtv * umax[i];
-        double umax_inv = 1.0/umax[i];
+        double umax_inv = 1.0 / umax[i];
         x[i][0] += dtv_umax * tanh(v[i][0]*umax_inv);
         x[i][1] += dtv_umax * tanh(v[i][1]*umax_inv);
         x[i][2] += dtv_umax * tanh(v[i][2]*umax_inv);
       }
-  else
+  }
+  else {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         x[i][0] += dtv * v[i][0];
         x[i][1] += dtv * v[i][1];
         x[i][2] += dtv * v[i][2];
       }
+  }
 }
 
 /* ----------------------------------------------------------------------

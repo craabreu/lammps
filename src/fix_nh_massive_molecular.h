@@ -101,7 +101,6 @@ class FixNHMassiveMolecular : public Fix {
   int gamma_press_default_flag;
   double gamma_temp, gamma_press;
   class RanMars *random_temp, *random_press;
-  double **v_eta;
 
   int regulation_default_flag;
   int regulation_flag;
