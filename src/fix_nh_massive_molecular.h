@@ -105,6 +105,7 @@ class FixNHMassiveMolecular : public Fix {
 
   int regulation_default_flag;
   int regulation_flag;
+  int adjust_v0_flag;
   double regulation_parameter;
   double *umax;
 

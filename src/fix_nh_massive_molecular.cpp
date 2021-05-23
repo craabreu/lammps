@@ -50,6 +50,8 @@ enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 enum{SIDE,MIDDLE};
 
+#define logcosh(x) (fabs(x)+log1p(exp(-2*fabs(x)))-log(2))
+
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
  ---------------------------------------------------------------------- */
@@ -101,6 +103,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   scheme = MIDDLE;
   langevin_flag = 1;
   regulation_default_flag = 1;
+  adjust_v0_flag = 1;
   gamma_temp_default_flag = 1;
   gamma_press_default_flag = 1;
   umax = nullptr;
@@ -393,8 +396,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
         gamma_temp = utils::numeric(FLERR, arg[iarg+1], false, lmp);
         if (gamma_temp <= 0.0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
         iarg += 2;
-    }
-    else if (strcmp(arg[iarg],"gamma_press") == 0) {
+    } else if (strcmp(arg[iarg],"gamma_press") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       gamma_press_default_flag = 0;
       gamma_press = utils::numeric(FLERR, arg[iarg+1], false, lmp);
@@ -409,6 +411,12 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
         if (regulation_parameter <= 0.0)
           error->all(FLERR,"Illegal fix nvt/npt/nph command");
         iarg += 2;
+    } else if (strcmp(arg[iarg],"adjust_v0") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"yes") == 0) adjust_v0_flag = 1;
+      else if (strcmp(arg[iarg+1],"no") == 0) adjust_v0_flag = 0;
+      else error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
   }
 
@@ -828,6 +836,44 @@ void FixNHMassiveMolecular::init()
     if (gamma_temp_default_flag) gamma_temp = t_freq;
     if (pstat_flag && gamma_press_default_flag) gamma_press = p_freq_max;
   }
+
+  if (regulation_flag) {
+    int *mask = atom->mask;
+    double *rmass = atom->rmass;
+    double *mass = atom->mass;
+    int *type = atom->type;
+    int nlocal = atom->nlocal;
+    if (igroup == atom->firstgroup) nlocal = atom->nfirst;
+
+    double kt = boltz * t_target / mvv2e;
+    double lkt = regulation_parameter * kt;
+    for (int i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        double massone = rmass ? rmass[i] : mass[type[i]];
+        umax[i] = sqrt(lkt/massone);
+      }
+
+    if (adjust_v0_flag) {
+      double **v = atom->v;
+      double factor = 1.0;
+      double stored = 0.0;
+      double sum_vu, sum_vu_all;
+      while (fabs(factor - stored) > 1E-6) {
+        stored = factor;
+        double sum_vu = 0.0;
+        for (int i = 0; i < nlocal; i++) {
+          double mass_umax = (rmass ? rmass[i] : mass[type[i]])*umax[i];
+          for (int j = 0; j < 3; j++)
+            sum_vu += mass_umax*v[i][j]*tanh(factor*v[i][j]/umax[i]);
+        }
+        MPI_Allreduce(&sum_vu, &sum_vu_all, 1, MPI_DOUBLE, MPI_SUM, world);
+        factor = 3*atom->natoms*kt/sum_vu_all;
+      }
+      for (int i = 0; i < nlocal; i++)
+        for (int j = 0; j < 3; j++)
+          v[i][j] *= factor;
+    }
+  }
 }
 
 /* ----------------------------------------------------------------------
@@ -883,20 +929,6 @@ void FixNHMassiveMolecular::setup(int /*vflag*/)
 
   if (tstat_flag)
     eta_mass = boltz * t_target / (t_freq*t_freq);
-
-  if (regulation_flag) {
-    int *mask = atom->mask;
-    double *rmass = atom->rmass;
-    double *mass = atom->mass;
-    int *type = atom->type;
-    int nlocal = atom->nlocal;
-    double Lkt = regulation_parameter * boltz * t_target / mvv2e;
-    for (int i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit) {
-        double massone = rmass ? rmass[i] : mass[type[i]];
-        umax[i] = sqrt(Lkt/massone);
-      }
-  }
 
   // masses and initial forces on barostat variables
 
@@ -1588,15 +1620,12 @@ int FixNHMassiveMolecular::modify_param(int narg, char **arg)
 double FixNHMassiveMolecular::compute_scalar()
 {
   int i;
-  double volume;
-  double energy;
+  double volume, energy, sum1, sum2;
   double kt = boltz * t_target;
   double lkt_press = 0.0;
   int ich;
   if (dimension == 3) volume = domain->xprd * domain->yprd * domain->zprd;
   else volume = domain->xprd * domain->yprd;
-
-  energy = 0.0;
 
   // thermostat chain energy is equivalent to Eq. (2) in
   // Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
@@ -1611,14 +1640,38 @@ double FixNHMassiveMolecular::compute_scalar()
     int *mask = atom->mask;
     int nlocal = atom->nlocal;
     if (igroup == atom->firstgroup) nlocal = atom->nfirst;
-    double elocal = 0.0;
+    sum1 = sum2 = 0.0;
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit)
         for (int j = 0; j < 3; j++)
-          for (ich = 0; ich < mtchain; ich++)
-            elocal += kt*eta[i][j][ich] + 0.5*eta_mass*eta_dot[i][j][ich]*eta_dot[i][j][ich];
+          for (int k = 0; k < mtchain; k++) {
+            sum1 += eta[i][j][k];
+            sum2 += eta_dot[i][j][k]*eta_dot[i][j][k];
+          }
+    double elocal = kt*sum1 + 0.5*eta_mass*sum2;
+
+    if (regulation_flag) {
+      double **v = atom->v;
+      double *rmass = atom->rmass;
+      double *mass = atom->mass;
+      int *type = atom->type;
+      double lkt = regulation_parameter*kt;
+      sum1 = sum2 = 0.0;
+      for (int i = 0; i < nlocal; i++)
+        if (mask[i] & groupbit) {
+          double massone = rmass ? rmass[i] : mass[type[i]];
+          for (int j = 0; j < 3; j++) {
+            sum1 += logcosh(v[i][j]/umax[i]);
+            sum2 += massone*v[i][j]*v[i][j];
+          }
+        }
+      elocal += lkt*sum1 - 0.5*mvv2e*sum2;
+    }
+
     MPI_Allreduce(&elocal, &energy, 1, MPI_DOUBLE, MPI_SUM, world);
   }
+  else
+    energy = 0.0;
 
   // barostat energy is equivalent to Eq. (8) in
   // Martyna, Tuckerman, Tobias, Klein, Mol Phys, 87, 1117
