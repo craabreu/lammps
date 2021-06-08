@@ -103,7 +103,9 @@ class FixNHMassiveMolecular : public Fix {
   class RanMars *random_temp, *random_press;
 
   int regulation_default_flag;
-  int regulation_flag;
+  int regulation_type;
+  enum {UNREGULATED, SEMIREGULATED, REGULATED};
+  int semi_regulated_flag;
   int adjust_v0_flag;
   double regulation_parameter;
   double *umax;

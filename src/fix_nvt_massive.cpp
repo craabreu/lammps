@@ -35,7 +35,7 @@ FixNVTMassive::FixNVTMassive(LAMMPS *lmp, int narg, char **arg) :
   // id = fix-ID + temp
 
   id_temp = utils::strdup(std::string(id) + "_temp");
-  if (regulation_flag)
+  if (regulation_type != UNREGULATED)
     modify->add_compute(fmt::format("{} all temp/molecular regulation {} {}",
                                     id_temp, regulation_parameter, t_target));
   else
