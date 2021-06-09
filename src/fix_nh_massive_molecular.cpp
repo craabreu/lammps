@@ -1980,6 +1980,48 @@ void *FixNHMassiveMolecular::extract(const char *str, int &dim)
   return nullptr;
 }
 
+/* ---------------------------------------------------------------------- */
+
+inline void backward_nhc(double *v_eta, double *eta, double &expfac,
+                         double tdrag_factor, double ktm,
+                         double ldt2, double ldt4, double mvv, int mtchain)
+{
+  for (int ich = mtchain-1; ich > 0; ich--) {
+    expfac = exp(-ldt4*v_eta[ich+1]);
+    v_eta[ich] *= expfac;
+    v_eta[ich] += (v_eta[ich-1]*v_eta[ich-1] - ktm)*ldt2;
+    v_eta[ich] *= tdrag_factor*expfac;
+    eta[ich] += v_eta[ich]*ldt2;
+  }
+
+  expfac = exp(-ldt4*v_eta[1]);
+  v_eta[0] *= expfac;
+  v_eta[0] += (mvv - ktm)*ldt2;
+  v_eta[0] *= tdrag_factor;
+  v_eta[0] *= expfac;
+  eta[0] += v_eta[0]*ldt2;
+}
+
+/* ---------------------------------------------------------------------- */
+
+inline void forward_nhc(double *v_eta, double *eta, double expfac,
+                        double tdrag_factor, double ktm,
+                        double ldt2, double ldt4, double mvv, int mtchain)
+{
+  eta[0] += v_eta[0]*ldt2;
+  v_eta[0] *= expfac;
+  v_eta[0] += (mvv - ktm)*ldt2;
+  v_eta[0] *= expfac;
+
+  for (int ich = 1; ich < mtchain; ich++) {
+    expfac = exp(-ldt4*v_eta[ich+1]);
+    eta[ich] += v_eta[ich]*ldt2;
+    v_eta[ich] *= expfac;
+    v_eta[ich] += (v_eta[ich-1]*v_eta[ich-1] - ktm)*ldt2;
+    v_eta[ich] *= expfac;
+  }
+}
+
 /* ----------------------------------------------------------------------
    perform half-step update of chain thermostat variables
 ------------------------------------------------------------------------- */
@@ -1988,8 +2030,6 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 {
   int i, j, iloop, ich;
   double expfac, imass, uij, umax_inv, mvv;
-  double *v_eta;
-
   double kt = boltz * t_target;
 
   // Update masses, to preserve initial freq, if flag set
@@ -2012,66 +2052,67 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
 
   double ldt = dt/nc_tchain;
   double ldt2 = 0.5*ldt;
-  double ldt2m = ldt2/eta_mass;
   double ldt4 = 0.25*ldt;
-  double nfactor = (regulation_parameter + 1.0)/regulation_parameter;
-  for (i = 0; i < nlocal; i++)
-    if (mask[i] & groupbit) {
-      imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
-      if (regulation_type != UNREGULATED) umax_inv = 1.0/umax[i];
-      for (j = 0; j < 3; j++) {
-        v_eta = eta_dot[i][j];
+  double ktm = kt/eta_mass;
+  double mfactor = mvv2e/eta_mass;
+  if (regulation_type == REGULATED)
+    mfactor *= (regulation_parameter + 1.0)/regulation_parameter;
 
-        if (regulation_type == UNREGULATED)
+  if (regulation_type == UNREGULATED) {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        imass = mfactor*(rmass ? rmass[i] : mass[type[i]]);
+        for (j = 0; j < 3; j++) {
           mvv = imass*v[i][j]*v[i][j];
-        else {
-          uij = umax[i]*tanh(v[i][j]*umax_inv);
-          mvv = imass*uij*(regulation_type == REGULATED ? nfactor*uij : v[i][j]);
-        }
-
-        for (iloop = 0; iloop < nc_tchain; iloop++) {
-
-          for (ich = mtchain-1; ich > 0; ich--) {
-            expfac = exp(-ldt4*v_eta[ich+1]);
-            v_eta[ich] *= expfac;
-            v_eta[ich] += (v_eta[ich-1]*v_eta[ich-1] - kt/eta_mass)*ldt2;
-            v_eta[ich] *= tdrag_factor*expfac;
-          }
-
-          expfac = exp(-ldt4*v_eta[1]);
-          v_eta[0] *= expfac;
-          v_eta[0] += (mvv - kt)*ldt2m;
-          v_eta[0] *= tdrag_factor;
-          v_eta[0] *= expfac;
-
-          if (regulation_type == REGULATED)
-            v[i][j] = umax[i]*asinh(sinh(v[i][j]*umax_inv)*exp(-ldt*v_eta[0]));
-          else
-            v[i][j] *= exp(-ldt*v_eta[0]);
-
-          for (ich = 0; ich < mtchain; ich++)
-            eta[i][j][ich] += ldt*v_eta[ich];
-
-          if (regulation_type == UNREGULATED)
+          for (iloop = 0; iloop < nc_tchain; iloop++) {
+            backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
             mvv = imass*v[i][j]*v[i][j];
-          else {
-            uij = umax[i]*tanh(v[i][j]*umax_inv);
-            mvv = imass*uij*(regulation_type == REGULATED ? nfactor*uij : v[i][j]);
-          }
-
-          v_eta[0] *= expfac;
-          v_eta[0] += (mvv - kt)*ldt2m;
-          v_eta[0] *= expfac;
-
-          for (ich = 1; ich < mtchain; ich++) {
-            expfac = exp(-ldt4*v_eta[ich+1]);
-            v_eta[ich] *= expfac;
-            v_eta[ich] += (eta_mass*v_eta[ich-1]*v_eta[ich-1] - kt)*ldt2m;
-            v_eta[ich] *= expfac;
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
           }
         }
       }
-    }
+  }
+  else if (regulation_type == SEMIREGULATED) {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
+        umax_inv = 1.0/umax[i];
+        for (j = 0; j < 3; j++) {
+          v[i][j] *= umax_inv;
+          mvv = imass*tanh(v[i][j])*v[i][j];
+          for (iloop = 0; iloop < nc_tchain; iloop++) {
+            backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
+            mvv = imass*tanh(v[i][j])*v[i][j];
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+          }
+          v[i][j] *= umax[i];
+        }
+      }
+  }
+  else {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
+        umax_inv = 1.0/umax[i];
+        for (j = 0; j < 3; j++) {
+          v[i][j] *= umax_inv;
+          uij = tanh(v[i][j]);
+          mvv = imass*uij*uij;
+          for (iloop = 0; iloop < nc_tchain; iloop++) {
+            backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            eta[i][j][0] -= ldt2*uij*uij*eta_dot[i][j][0];
+            v[i][j] = asinh(sinh(v[i][j])*exp(-ldt*eta_dot[i][j][0]));
+            uij = tanh(v[i][j]);
+            eta[i][j][0] -= ldt2*uij*uij*eta_dot[i][j][0];
+            mvv = imass*uij*uij;
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+          }
+          v[i][j] *= umax[i];
+        }
+      }
+  }
 
   if (which == BIAS)
     for (i = 0; i < nlocal; i++)
