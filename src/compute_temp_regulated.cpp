@@ -23,12 +23,14 @@
 
 using namespace LAMMPS_NS;
 
+enum {SEMIREGULATED, REGULATED};
+
 /* ---------------------------------------------------------------------- */
 
 ComputeTempRegulated::ComputeTempRegulated(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg)
 {
-  if (narg != 5) error->all(FLERR,"Illegal compute temp command");
+  if (narg < 5 || narg > 6) error->all(FLERR,"Illegal compute temp command");
 
   scalar_flag = vector_flag = 1;
   size_vector = 6;
@@ -39,7 +41,17 @@ ComputeTempRegulated::ComputeTempRegulated(LAMMPS *lmp, int narg, char **arg) :
   double n = utils::numeric(FLERR, arg[3], false, lmp);
   double temp = utils::numeric(FLERR, arg[4], false, lmp);
 
+  if (narg == 5)
+    regulation_type = SEMIREGULATED;
+  else if (strcmp(arg[5],"semi") == 0)
+    regulation_type = SEMIREGULATED;
+  else if (strcmp(arg[5],"full") == 0)
+    regulation_type = REGULATED;
+  else
+    error->all(FLERR,"Illegal compute temp command");
+
   nkT = n * force->boltz * temp / force->mvv2e;
+  np1kT = (n + 1) * force->boltz * temp / force->mvv2e;
 
   vector = new double[size_vector];
 }
@@ -87,11 +99,12 @@ double ComputeTempRegulated::compute_scalar()
 
   double t = 0.0;
 
-  if (rmass) {
+  if (regulation_type == SEMIREGULATED) {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
-        double mumax = sqrt(rmass[i]*nkT);
-        double umaxinv = rmass[i]/mumax;
+        double imass = rmass ? rmass[i] : mass[type[i]];
+        double mumax = sqrt(imass*nkT);
+        double umaxinv = imass/mumax;
         t += (v[i][0]*tanh(v[i][0]*umaxinv) +
               v[i][1]*tanh(v[i][1]*umaxinv) +
               v[i][2]*tanh(v[i][2]*umaxinv)) * mumax;
@@ -99,12 +112,14 @@ double ComputeTempRegulated::compute_scalar()
   } else {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
-        double mumax = sqrt(mass[type[i]]*nkT);
-        double umaxinv = mass[type[i]]/mumax;
-        t += (v[i][0]*tanh(v[i][0]*umaxinv) +
-              v[i][1]*tanh(v[i][1]*umaxinv) +
-              v[i][2]*tanh(v[i][2]*umaxinv)) * mumax;
+        double imass = rmass ? rmass[i] : mass[type[i]];
+        double umaxinv = sqrt(imass/nkT);
+        double u0 = tanh(v[i][0]*umaxinv);
+        double u1 = tanh(v[i][1]*umaxinv);
+        double u2 = tanh(v[i][2]*umaxinv);
+        t += u0*u0 + u1*u1 + u2*u2;
       }
+    t *= np1kT
   }
 
   MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);

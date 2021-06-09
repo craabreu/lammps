@@ -35,7 +35,8 @@ class ComputeTempRegulated : public Compute {
 
  protected:
   double tfactor;
-  double nkT;
+  double nkT, np1kT;
+  int regulation_type;
 
   virtual void dof_compute();
 };
