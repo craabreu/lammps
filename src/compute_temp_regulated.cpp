@@ -99,28 +99,20 @@ double ComputeTempRegulated::compute_scalar()
 
   double t = 0.0;
 
-  if (regulation_type == SEMIREGULATED) {
-    for (int i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit) {
-        double imass = rmass ? rmass[i] : mass[type[i]];
-        double mumax = sqrt(imass*nkT);
-        double umaxinv = imass/mumax;
-        t += (v[i][0]*tanh(v[i][0]*umaxinv) +
-              v[i][1]*tanh(v[i][1]*umaxinv) +
-              v[i][2]*tanh(v[i][2]*umaxinv)) * mumax;
-      }
-  } else {
-    for (int i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit) {
-        double imass = rmass ? rmass[i] : mass[type[i]];
-        double umaxinv = sqrt(imass/nkT);
-        double u0 = tanh(v[i][0]*umaxinv);
-        double u1 = tanh(v[i][1]*umaxinv);
-        double u2 = tanh(v[i][2]*umaxinv);
+  for (int i = 0; i < nlocal; i++)
+    if (mask[i] & groupbit) {
+      double imass = rmass ? rmass[i] : mass[type[i]];
+      double mumax = sqrt(imass*nkT);
+      double umaxinv = imass/mumax;
+      double u0 = tanh(v[i][0]*umaxinv);
+      double u1 = tanh(v[i][1]*umaxinv);
+      double u2 = tanh(v[i][2]*umaxinv);
+      if (regulation_type == REGULATED)
         t += u0*u0 + u1*u1 + u2*u2;
-      }
-    t *= np1kT
-  }
+      else
+        t += mumax*(v[i][0]*u0 + v[i][1]*u1 + v[i][2]*u2);
+    }
+  if (regulation_type == REGULATED) t *= np1kT;
 
   MPI_Allreduce(&t,&scalar,1,MPI_DOUBLE,MPI_SUM,world);
   if (dynamic) dof_compute();
@@ -153,14 +145,31 @@ void ComputeTempRegulated::compute_vector()
       massone = rmass ? rmass[i] : mass[type[i]];
       double mumax = sqrt(massone*nkT);
       double umaxinv = massone/mumax;
-      t[0] += mumax * v[i][0]*tanh(v[i][0]);
-      t[1] += mumax * v[i][1]*tanh(v[i][1]);
-      t[2] += mumax * v[i][2]*tanh(v[i][2]);
-      t[3] += mumax * v[i][0]*tanh(v[i][1]);
-      t[4] += mumax * v[i][0]*tanh(v[i][2]);
-      t[5] += mumax * v[i][1]*tanh(v[i][2]);
+      double u0 = tanh(v[i][0]*umaxinv);
+      double u1 = tanh(v[i][1]*umaxinv);
+      double u2 = tanh(v[i][2]*umaxinv);
+      if (regulation_type == REGULATED) {
+        t[0] += u0*u0;
+        t[1] += u1*u1;
+        t[2] += u2*u2;
+        t[3] += u0*u1;
+        t[4] += u0*u2;
+        t[5] += u1*u2;
+      }
+      else {
+        t[0] += mumax*v[i][0]*u0;
+        t[1] += mumax*v[i][1]*u1;
+        t[2] += mumax*v[i][2]*u2;
+        t[3] += mumax*v[i][0]*u1;
+        t[4] += mumax*v[i][0]*u2;
+        t[5] += mumax*v[i][1]*u2;
+      }
     }
 
   MPI_Allreduce(t,vector,6,MPI_DOUBLE,MPI_SUM,world);
-  for (i = 0; i < 6; i++) vector[i] *= force->mvv2e;
+
+  if (regulation_type == REGULATED)
+    for (i = 0; i < 6; i++) vector[i] *= np1kT*force->mvv2e;
+  else
+    for (i = 0; i < 6; i++) vector[i] *= force->mvv2e;
 }
