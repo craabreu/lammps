@@ -827,6 +827,9 @@ void FixNHMassiveMolecular::init()
     nlevels_respa = ((Respa *) update->integrate)->nlevels;
     step_respa = ((Respa *) update->integrate)->step;
     dto = 0.5*step_respa[0];
+
+    if (tstat_flag && scheme == MIDDLE)
+      tdrag_factor = 1.0 - (step_respa[0] * t_freq * drag / nc_tchain);
   }
 
   // detect if any rigid fixes exist so rigid bodies move when box is remapped
@@ -2004,8 +2007,7 @@ inline void backward_nhc(double *v_eta, double *eta, double &expfac,
 
 /* ---------------------------------------------------------------------- */
 
-inline void forward_nhc(double *v_eta, double *eta, double expfac,
-                        double tdrag_factor, double ktm,
+inline void forward_nhc(double *v_eta, double *eta, double expfac, double ktm,
                         double ldt2, double ldt4, double mvv, int mtchain)
 {
   eta[0] += v_eta[0]*ldt2;
@@ -2068,7 +2070,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
             backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
             v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
             mvv = imass*v[i][j]*v[i][j];
-            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
           }
         }
       }
@@ -2085,7 +2087,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
             backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
             v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
             mvv = imass*tanh(v[i][j])*v[i][j];
-            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
           }
           v[i][j] *= umax[i];
         }
@@ -2107,7 +2109,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
             uij = tanh(v[i][j]);
             eta[i][j][0] -= ldt2*uij*uij*eta_dot[i][j][0];
             mvv = imass*uij*uij;
-            forward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
           }
           v[i][j] *= umax[i];
         }
