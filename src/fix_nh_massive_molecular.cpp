@@ -50,7 +50,15 @@ enum{NONE,XYZ,XY,YZ,XZ};
 enum{ISO,ANISO,TRICLINIC};
 enum{SIDE,MIDDLE};
 
-#define logcosh(x) (fabs(x)+log1p(exp(-2*fabs(x)))-log(2))
+inline double logcosh(double x) {
+  double xa = fabs(x);
+  return xa + log1p(exp(-2*xa)) - log(2);
+}
+
+inline double arcsinh(double x) {
+  double xa = fabs(x);
+  return copysign(log(xa > 1e8 ? 2*xa : xa+sqrt(1+x*x)), x);
+}
 
 /* ----------------------------------------------------------------------
    NVT,NPH,NPT integrators for improved Nose-Hoover equations of motion
@@ -2060,22 +2068,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
   if (regulation_type == REGULATED)
     mfactor *= (regulation_parameter + 1.0)/regulation_parameter;
 
-  if (regulation_type == UNREGULATED) {
-    for (i = 0; i < nlocal; i++)
-      if (mask[i] & groupbit) {
-        imass = mfactor*(rmass ? rmass[i] : mass[type[i]]);
-        for (j = 0; j < 3; j++) {
-          mvv = imass*v[i][j]*v[i][j];
-          for (iloop = 0; iloop < nc_tchain; iloop++) {
-            backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
-            v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
-            mvv = imass*v[i][j]*v[i][j];
-            forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
-          }
-        }
-      }
-  }
-  else if (regulation_type == SEMIREGULATED) {
+  if (regulation_type == SEMIREGULATED) {
     for (i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
@@ -2093,7 +2086,7 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
         }
       }
   }
-  else {
+  else if (regulation_type == REGULATED) {
     for (i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
         imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
@@ -2105,13 +2098,28 @@ void FixNHMassiveMolecular::nhc_temp_integrate(double dt)
           for (iloop = 0; iloop < nc_tchain; iloop++) {
             backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
             eta[i][j][0] -= ldt2*uij*uij*eta_dot[i][j][0];
-            v[i][j] = asinh(sinh(v[i][j])*exp(-ldt*eta_dot[i][j][0]));
+            v[i][j] = arcsinh(sinh(v[i][j])*exp(-ldt*eta_dot[i][j][0]));
             uij = tanh(v[i][j]);
             eta[i][j][0] -= ldt2*uij*uij*eta_dot[i][j][0];
             mvv = imass*uij*uij;
             forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
           }
           v[i][j] *= umax[i];
+        }
+      }
+  }
+  else {
+    for (i = 0; i < nlocal; i++)
+      if (mask[i] & groupbit) {
+        imass = mfactor*(rmass ? rmass[i] : mass[type[i]]);
+        for (j = 0; j < 3; j++) {
+          mvv = imass*v[i][j]*v[i][j];
+          for (iloop = 0; iloop < nc_tchain; iloop++) {
+            backward_nhc(eta_dot[i][j], eta[i][j], expfac, tdrag_factor, ktm, ldt2, ldt4, mvv, mtchain);
+            v[i][j] *= exp(-ldt*eta_dot[i][j][0]);
+            mvv = imass*v[i][j]*v[i][j];
+            forward_nhc(eta_dot[i][j], eta[i][j], expfac, ktm, ldt2, ldt4, mvv, mtchain);
+          }
         }
       }
   }
@@ -2188,7 +2196,7 @@ void FixNHMassiveMolecular::nhl_temp_integrate(double dt)
           for (int iloop = 0; iloop < nc_tchain; iloop++) {
             double v_eta_old = tdrag_factor*(v_eta + delta);
             v_eta = a*v_eta_old + b*random_temp->gaussian();
-            vij = umax[i]*asinh(sinh(vij*umax_inv)*exp(-ldt2*(v_eta+v_eta_old)));
+            vij = umax[i]*arcsinh(sinh(vij*umax_inv)*exp(-ldt2*(v_eta+v_eta_old)));
             uij = umax[i]*tanh(vij*umax_inv);
             delta = (nfactor*uij*uij - kt)*ldt2m;
             v_eta += delta;
