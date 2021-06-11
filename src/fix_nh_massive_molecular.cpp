@@ -2158,67 +2158,70 @@ void FixNHMassiveMolecular::nhl_temp_integrate(double dt)
 
   double ldt = dt/nc_tchain;
   double ldt2 = 0.5*ldt;
-  double ldt2m = ldt2/eta_mass;
+  double ktm = kt/eta_mass;
   double a = exp(-gamma_temp*ldt);
-  double b = sqrt((1.0-a*a)*kt/eta_mass);
-  double nfactor = (regulation_parameter + 1.0)/regulation_parameter;
+  double b = sqrt((1.0-a*a)*ktm);
+  double mfactor = mvv2e/eta_mass;
+  if (regulation_type == REGULATED)
+    mfactor *= (regulation_parameter + 1.0)/regulation_parameter;
 
   if (regulation_type == SEMIREGULATED) {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
-        double mass_umax = mvv2e*(rmass ? rmass[i] : mass[type[i]])*umax[i];
+        double imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
         double umax_inv = 1.0/umax[i];
         for (int j = 0; j < 3; j++) {
           double v_eta = eta_dot[i][j][0];
-          double vij = v[i][j];
-          double delta = (mass_umax*tanh(vij*umax_inv)*vij - kt)*ldt2m;
+          double vs = v[i][j]*umax_inv;
+          double delta = (imass*vs*tanh(vs) - ktm)*ldt2;
           for (int iloop = 0; iloop < nc_tchain; iloop++) {
-            double v_eta_old = tdrag_factor*(v_eta + delta);
-            v_eta = a*v_eta_old + b*random_temp->gaussian();
-            vij *= exp(-ldt2*(v_eta_old + v_eta));
-            delta = (mass_umax*tanh(vij*umax_inv)*vij - kt)*ldt2m;
+            double vm = tdrag_factor*(v_eta + delta);
+            v_eta = a*vm + b*random_temp->gaussian();
+            vs *= exp(-ldt2*(v_eta + vm));
+            delta = (imass*vs*tanh(vs) - ktm)*ldt2;
             v_eta += delta;
           }
           eta_dot[i][j][0] = v_eta;
-          v[i][j] = vij;
+          v[i][j] = umax[i]*vs;
         }
       }
   }
   else if (regulation_type == REGULATED) {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
+        double imass = mfactor*umax[i]*umax[i]*(rmass ? rmass[i] : mass[type[i]]);
         double umax_inv = 1.0/umax[i];
         for (int j = 0; j < 3; j++) {
           double v_eta = eta_dot[i][j][0];
-          double vij = v[i][j];
-          double uij = umax[i]*tanh(vij*umax_inv);
-          double delta = (nfactor*uij*uij - kt)*ldt2m;
+          double vs = v[i][j]*umax_inv;
+          double us = tanh(vs);
+          double delta = (imass*us*us - ktm)*ldt2;
           for (int iloop = 0; iloop < nc_tchain; iloop++) {
-            double v_eta_old = tdrag_factor*(v_eta + delta);
-            v_eta = a*v_eta_old + b*random_temp->gaussian();
-            vij = umax[i]*arcsinh(sinh(vij*umax_inv)*exp(-ldt2*(v_eta+v_eta_old)));
-            uij = umax[i]*tanh(vij*umax_inv);
-            delta = (nfactor*uij*uij - kt)*ldt2m;
+            double vm = tdrag_factor*(v_eta + delta);
+            v_eta = a*vm + b*random_temp->gaussian();
+            vs = arcsinh(sinh(vs)*exp(-ldt2*(v_eta + vm)));
+            us = tanh(vs);
+            delta = (imass*us*us - ktm)*ldt2;
             v_eta += delta;
           }
           eta_dot[i][j][0] = v_eta;
-          v[i][j] = vij;
+          v[i][j] = umax[i]*vs;
         }
       }
   }
   else {
     for (int i = 0; i < nlocal; i++)
       if (mask[i] & groupbit) {
-        double imass = mvv2e*(rmass ? rmass[i] : mass[type[i]]);
+        double imass = mfactor*(rmass ? rmass[i] : mass[type[i]]);
         for (int j = 0; j < 3; j++) {
           double v_eta = eta_dot[i][j][0];
           double vij = v[i][j];
-          double delta = (imass*vij*vij - kt)*ldt2m;
+          double delta = (imass*vij*vij - ktm)*ldt2;
           for (int iloop = 0; iloop < nc_tchain; iloop++) {
-            double v_eta_old = tdrag_factor*(v_eta + delta);
-            v_eta = a*v_eta_old + b*random_temp->gaussian();
-            vij *= exp(-ldt2*(v_eta_old + v_eta));
-            delta = (imass*vij*vij - kt)*ldt2m;
+            double vm = tdrag_factor*(v_eta + delta);
+            v_eta = a*vm + b*random_temp->gaussian();
+            vij *= exp(-ldt2*(vm + v_eta));
+            delta = (imass*vij*vij - ktm)*ldt2;
             v_eta += delta;
           }
           eta_dot[i][j][0] = v_eta;
