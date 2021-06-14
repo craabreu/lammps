@@ -849,7 +849,7 @@ void FixNHMiddle::initial_integrate(int /*vflag*/)
 {
   // update eta_press_dot
 
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  // if (pstat_flag && mpchain) nhc_press_integrate();
 
   // update eta_dot
 
@@ -877,17 +877,21 @@ void FixNHMiddle::initial_integrate(int /*vflag*/)
   if (pstat_flag) {
     compute_press_target();
     nh_omega_dot();
-    nh_v_press();
+    // nh_v_press();
   }
 
   nve_v();
 
   // remap simulation box by 1/2 step
 
-  if (pstat_flag) remap();
+  if (pstat_flag) {
+    remap();
+    nh_v_press();
+  }
 
   nve_x();
   if (tstat_flag) nhc_temp_integrate();
+  if (pstat_flag && mpchain) nhc_press_integrate();
   nve_x();
 
   // remap simulation box by 1/2 step
@@ -895,6 +899,7 @@ void FixNHMiddle::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) {
     remap();
+    nh_v_press();
     if (kspace_flag) force->kspace->setup();
   }
 }
@@ -913,10 +918,10 @@ void FixNHMiddle::final_integrate()
   //   per-atom values are invalid if reneigh/comm occurred
   //     since temp->compute() in initial_integrate()
 
-  if (which == BIAS && neighbor->ago == 0)
-    t_current = temperature->compute_scalar();
-
-  if (pstat_flag) nh_v_press();
+  // if (which == BIAS && neighbor->ago == 0)
+  //   t_current = temperature->compute_scalar();
+  //
+  // if (pstat_flag) nh_v_press();
 
   // compute new T,P after velocities rescaled by nh_v_press()
   // compute appropriately coupled elements of mvv_current
@@ -944,7 +949,7 @@ void FixNHMiddle::final_integrate()
   // update eta_press_dot
 
   // if (tstat_flag) nhc_temp_integrate();
-  if (pstat_flag && mpchain) nhc_press_integrate();
+  // if (pstat_flag && mpchain) nhc_press_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -966,7 +971,7 @@ void FixNHMiddle::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop
 
     // update eta_press_dot
 
-    if (pstat_flag && mpchain) nhc_press_integrate();
+    // if (pstat_flag && mpchain) nhc_press_integrate();
 
     // update eta_dot
 
@@ -994,7 +999,7 @@ void FixNHMiddle::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop
     if (pstat_flag) {
       compute_press_target();
       nh_omega_dot();
-      nh_v_press();
+      // nh_v_press();
     }
 
     nve_v();
@@ -1005,11 +1010,18 @@ void FixNHMiddle::initial_integrate_respa(int /*vflag*/, int ilevel, int /*iloop
   // if barostat, perform 1/2 step remap before and after
 
   if (ilevel == 0) {
-    if (pstat_flag) remap();
+    if (pstat_flag) {
+      remap();
+      nh_v_press();
+    }
     nve_x();
     if (tstat_flag) nhc_temp_integrate();
+    if (pstat_flag && mpchain) nhc_press_integrate();
     nve_x();
-    if (pstat_flag) remap();
+    if (pstat_flag) {
+      remap();
+      nh_v_press();
+    }
   }
 
   // if barostat, redo KSpace coeffs at outermost level,
@@ -1905,23 +1917,23 @@ void FixNHMiddle::nhc_press_integrate()
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
     for (ich = mpchain-1; ich > 0; ich--) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
+      expfac = exp(-ncfac*dt4*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
+      etap_dot[ich] += etap_dotdot[ich] * ncfac*dthalf;
       etap_dot[ich] *= pdrag_factor;
       etap_dot[ich] *= expfac;
     }
 
-    expfac = exp(-ncfac*dt8*etap_dot[1]);
+    expfac = exp(-ncfac*dt4*etap_dot[1]);
     etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
+    etap_dot[0] += etap_dotdot[0] * ncfac*dthalf;
     etap_dot[0] *= pdrag_factor;
     etap_dot[0] *= expfac;
 
     for (ich = 0; ich < mpchain; ich++)
-      etap[ich] += ncfac*dthalf*etap_dot[ich];
+      etap[ich] += ncfac*dtv*etap_dot[ich];
 
-    factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+    factor_etap = exp(-ncfac*dtv*etap_dot[0]);
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
 
@@ -1942,16 +1954,16 @@ void FixNHMiddle::nhc_press_integrate()
     etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
 
     etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
+    etap_dot[0] += etap_dotdot[0] * ncfac*dthalf;
     etap_dot[0] *= expfac;
 
     for (ich = 1; ich < mpchain; ich++) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
+      expfac = exp(-ncfac*dt4*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dotdot[ich] =
         (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] - boltz*t_target) /
         etap_mass[ich];
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
+      etap_dot[ich] += etap_dotdot[ich] * ncfac*dthalf;
       etap_dot[ich] *= expfac;
     }
   }
