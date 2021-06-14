@@ -89,8 +89,8 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   drag = 0.0;
   allremap = 1;
   id_dilate = nullptr;
-  mtchain = 1;
-  mpchain = 1;
+  mtchain = 3;
+  mpchain = 3;
   nc_tchain = nc_pchain = 1;
   mtk_flag = 1;
   deviatoric_flag = 0;
@@ -137,6 +137,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   // used by FixNVTSllod to preserve non-default value
 
   mtchain_default_flag = 1;
+  mpchain_default_flag = 1;
 
   tstat_flag = 0;
   double t_period = 0.0;
@@ -317,6 +318,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       iarg += 2;
     } else if (strcmp(arg[iarg],"pchain") == 0) {
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      mpchain_default_flag = 0;
       mpchain = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
       if (mpchain < 0) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
@@ -662,12 +664,21 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   }
 
   if (langevin_flag) {
-    if (mtchain > 1)
+    if (mtchain_default_flag)
+      mtchain = 1;
+    else if (mtchain > 1)
       error->all(FLERR,"Nose-Hoover-Langevin uses tchain = 1");
+
     // each proc follows its own RN sequence
     random_temp = new RanMars(lmp, seed + 257 + 139*comm->me);
     for (int i = 0; i < 100; i++) random_temp->uniform();
+
     if (pstat_flag) {
+      if (mpchain_default_flag)
+        mpchain = 1;
+      else if (mpchain > 1)
+        error->all(FLERR,"Nose-Hoover-Langevin uses pchain = 1");
+
       // all procs follow the same RN sequence
       random_press = new RanMars(lmp, seed);
       for (int i = 0; i < 100; i++) random_press->uniform();
@@ -1021,7 +1032,10 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   // remap simulation box by 1/2 step
 
-  if (pstat_flag) remap();
+  if (pstat_flag) {
+    remap();
+    if (internal_vscaling_flag) nh_v_press();
+  }
 
   if (tstat_flag && scheme == MIDDLE) {
     nve_x(dthalf);
@@ -1037,6 +1051,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) {
     remap();
+    if (internal_vscaling_flag) nh_v_press();
     if (kspace_flag) force->kspace->setup();
   }
 }
@@ -1146,7 +1161,10 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
   // if barostat, perform 1/2 step remap before and after
 
   if (ilevel == 0) {
-    if (pstat_flag) remap();
+    if (pstat_flag) {
+      remap();
+      if (internal_vscaling_flag) nh_v_press();
+    }
     if (tstat_flag && scheme == MIDDLE) {
       nve_x(dthalf);
       if (langevin_flag) nhl_temp_integrate(dtv);
@@ -1155,7 +1173,10 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
     }
     else
       nve_x(dtv);
-    if (pstat_flag) remap();
+    if (pstat_flag) {
+      remap();
+      if (internal_vscaling_flag) nh_v_press();
+    }
   }
 
   // if barostat, redo KSpace coeffs at outermost level,
@@ -1443,8 +1464,6 @@ void FixNHMassiveMolecular::remap()
   if (nrigid)
     for (i = 0; i < nrigid; i++)
       modify->fix[rfix[i]]->deform(1);
-
-  if (internal_vscaling_flag) nh_v_press();
 }
 
 /* ----------------------------------------------------------------------

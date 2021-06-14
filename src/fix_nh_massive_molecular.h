@@ -92,6 +92,7 @@ class FixNHMassiveMolecular : public Fix {
   double eta_mass;
   int mtchain;                 // length of chain
   int mtchain_default_flag;    // 1 = mtchain is default
+  int mpchain_default_flag;
 
   int scheme;
 
