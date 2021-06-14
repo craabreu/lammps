@@ -1003,18 +1003,13 @@ void FixNHMassiveMolecular::setup(int /*vflag*/)
 
 void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 {
-  // update eta_press_dot
-
-  if (pstat_flag && mpchain) nhc_press_integrate();
-
-  // update eta_dot
-
   if (tstat_flag) {
     compute_temp_target();
     if (scheme == SIDE) {
       if (langevin_flag) nhl_temp_integrate(dthalf);
       else nhc_temp_integrate(dthalf);
       if (pstat_flag) {
+        if (mpchain) nhc_press_integrate(dthalf);
         if (pstyle == ISO) temperature->compute_scalar();
         else temperature->compute_vector();
         couple();
@@ -1041,6 +1036,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
     nve_x(dthalf);
     if (langevin_flag) nhl_temp_integrate(dtv);
     else nhc_temp_integrate(dtv);
+    if (mpchain) nhc_press_integrate(dtv);
     nve_x(dthalf);
   }
   else
@@ -1108,8 +1104,8 @@ void FixNHMassiveMolecular::end_of_step()
   if (tstat_flag && scheme == SIDE) {
     if (langevin_flag) nhl_temp_integrate(dthalf);
     else nhc_temp_integrate(dthalf);
+    if (pstat_flag && mpchain) nhc_press_integrate(dthalf);
   }
-  if (pstat_flag && mpchain) nhc_press_integrate();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1129,18 +1125,13 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
 
   if (ilevel == nlevels_respa-1) {
 
-    // update eta_press_dot
-
-    if (pstat_flag && mpchain) nhc_press_integrate();
-
-    // update eta_dot
-
     if (tstat_flag) {
       compute_temp_target();
       if (scheme == SIDE) {
         if (langevin_flag) nhl_temp_integrate(dthalf);
         else nhc_temp_integrate(dthalf);
         if (pstat_flag) {
+          if (mpchain) nhc_press_integrate(dthalf);
           if (pstyle == ISO) temperature->compute_scalar();
           else temperature->compute_vector();
           couple();
@@ -2260,7 +2251,7 @@ void FixNHMassiveMolecular::nhl_temp_integrate(double dt)
    scale barostat velocities
 ------------------------------------------------------------------------- */
 
-void FixNHMassiveMolecular::nhc_press_integrate()
+void FixNHMassiveMolecular::nhc_press_integrate(double dt)
 {
   int ich,i,pdof;
   double expfac,factor_etap,kecurrent;
@@ -2313,39 +2304,43 @@ void FixNHMassiveMolecular::nhc_press_integrate()
   else lkt_press = pdof * kt;
   etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
 
-  double ncfac = 1.0/nc_pchain;
+  double ldt = dt/nc_pchain;
+  double ldt2 = 0.5*ldt;
+  double ldt4 = 0.5*ldt2;
+
   double a, b;
   if (langevin_flag) {
-    a = exp(-gamma_press*ncfac*dthalf);
+    a = exp(-gamma_press*ldt);
     b = sqrt((1.0-a*a)*kt/etap_mass[mpchain-1]);
   }
+
   for (int iloop = 0; iloop < nc_pchain; iloop++) {
 
     for (ich = mpchain-1; ich > 0; ich--) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
+      expfac = exp(-ldt4*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
+      etap_dot[ich] += etap_dotdot[ich] * ldt2;
       etap_dot[ich] *= pdrag_factor;
       etap_dot[ich] *= expfac;
     }
 
-    expfac = exp(-ncfac*dt8*etap_dot[1]);
+    expfac = exp(-ldt4*etap_dot[1]);
     etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
+    etap_dot[0] += etap_dotdot[0] * ldt2;
     etap_dot[0] *= pdrag_factor;
     etap_dot[0] *= expfac;
 
-    for (ich = 0; ich < mpchain; ich++)
-      etap[ich] += ncfac*dthalf*etap_dot[ich];
-
     if (langevin_flag) {
-      factor_etap = exp(-ncfac*dt4*etap_dot[0]);
+      factor_etap = exp(-ldt2*etap_dot[0]);
       etap_dot[mpchain-1] *= a;
       etap_dot[mpchain-1] += b*random_press->gaussian();
-      factor_etap *= exp(-ncfac*dt4*etap_dot[0]);
+      factor_etap *= exp(-ldt2*etap_dot[0]);
     }
-    else
-      factor_etap = exp(-ncfac*dthalf*etap_dot[0]);
+    else {
+      for (ich = 0; ich < mpchain; ich++)
+        etap[ich] += ldt*etap_dot[ich];
+      factor_etap = exp(-ldt*etap_dot[0]);
+    }
 
     for (i = 0; i < 3; i++)
       if (p_flag[i]) omega_dot[i] *= factor_etap;
@@ -2367,16 +2362,16 @@ void FixNHMassiveMolecular::nhc_press_integrate()
     etap_dotdot[0] = (kecurrent - lkt_press)/etap_mass[0];
 
     etap_dot[0] *= expfac;
-    etap_dot[0] += etap_dotdot[0] * ncfac*dt4;
+    etap_dot[0] += etap_dotdot[0] * ldt2;
     etap_dot[0] *= expfac;
 
     for (ich = 1; ich < mpchain; ich++) {
-      expfac = exp(-ncfac*dt8*etap_dot[ich+1]);
+      expfac = exp(-ldt4*etap_dot[ich+1]);
       etap_dot[ich] *= expfac;
       etap_dotdot[ich] =
         (etap_mass[ich-1]*etap_dot[ich-1]*etap_dot[ich-1] - boltz*t_target) /
         etap_mass[ich];
-      etap_dot[ich] += etap_dotdot[ich] * ncfac*dt4;
+      etap_dot[ich] += etap_dotdot[ich] * ldt2;
       etap_dot[ich] *= expfac;
     }
   }
