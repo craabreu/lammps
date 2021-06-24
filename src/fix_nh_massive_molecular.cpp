@@ -1036,7 +1036,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
     nve_x(dthalf);
     if (langevin_flag) nhl_temp_integrate(dtv);
     else nhc_temp_integrate(dtv);
-    if (mpchain) nhc_press_integrate(dtv);
+    if (pstat_flag && mpchain) nhc_press_integrate(dtv);
     nve_x(dthalf);
   }
   else
