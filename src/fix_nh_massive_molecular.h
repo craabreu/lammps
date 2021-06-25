@@ -29,6 +29,7 @@ class FixNHMassiveMolecular : public Fix {
   virtual void final_integrate();
   virtual void end_of_step();
   void initial_integrate_respa(int, int, int);
+  void pre_force_respa(int, int, int);
   void final_integrate_respa(int, int);
   virtual void pre_exchange();
   double compute_scalar();
