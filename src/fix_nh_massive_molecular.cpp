@@ -115,6 +115,7 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
   gamma_temp_default_flag = 1;
   gamma_press_default_flag = 1;
   internal_vscaling_flag = 1;
+  pvsum_flag = 1;
   umax = nullptr;
 
   // turn on tilt factor scaling, whenever applicable
@@ -437,6 +438,12 @@ FixNHMassiveMolecular::FixNHMassiveMolecular(LAMMPS *lmp, int narg, char **arg) 
       if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
       if (strcmp(arg[iarg+1],"internal") == 0) internal_vscaling_flag = 1;
       else if (strcmp(arg[iarg+1],"external") == 0) internal_vscaling_flag = 0;
+      else error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      iarg += 2;
+    } else if (strcmp(arg[iarg],"pvsum") == 0) {
+      if (iarg+2 > narg) error->all(FLERR,"Illegal fix nvt/npt/nph command");
+      if (strcmp(arg[iarg+1],"yes") == 0) pvsum_flag = 1;
+      else if (strcmp(arg[iarg+1],"no") == 0) pvsum_flag = 0;
       else error->all(FLERR,"Illegal fix nvt/npt/nph command");
       iarg += 2;
     } else error->all(FLERR,"Illegal fix nvt/npt/nph command");
@@ -1021,7 +1028,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
   if (pstat_flag) {
     compute_press_target();
     nh_omega_dot();
-    if (!internal_vscaling_flag) nh_v_press();
+    if (pvsum_flag && !internal_vscaling_flag) nh_v_press();
   }
 
   nve_v();
@@ -1030,7 +1037,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) {
     remap();
-    if (internal_vscaling_flag) nh_v_press();
+    if (pvsum_flag && internal_vscaling_flag) nh_v_press();
   }
 
   if (tstat_flag && scheme == MIDDLE) {
@@ -1048,7 +1055,7 @@ void FixNHMassiveMolecular::initial_integrate(int /*vflag*/)
 
   if (pstat_flag) {
     remap();
-    if (internal_vscaling_flag) nh_v_press();
+    if (pvsum_flag && internal_vscaling_flag) nh_v_press();
     if (kspace_flag) force->kspace->setup();
   }
 }
@@ -1075,7 +1082,7 @@ void FixNHMassiveMolecular::end_of_step()
   if (which == BIAS && neighbor->ago == 0)
     t_current = temperature->compute_scalar();
 
-  if (pstat_flag && !internal_vscaling_flag) nh_v_press();
+  if (pstat_flag && pvsum_flag && !internal_vscaling_flag) nh_v_press();
 
   // compute new T,P after velocities rescaled by nh_v_press()
   // compute appropriately coupled elements of mvv_current
@@ -1143,7 +1150,7 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
     if (pstat_flag) {
       compute_press_target();
       nh_omega_dot();
-      if (!internal_vscaling_flag) nh_v_press();
+      if (pvsum_flag && !internal_vscaling_flag) nh_v_press();
     }
   }
 
@@ -1155,7 +1162,7 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
   if (ilevel == 0) {
     if (pstat_flag) {
       remap();
-      if (internal_vscaling_flag) nh_v_press();
+      if (pvsum_flag && internal_vscaling_flag) nh_v_press();
     }
     if (tstat_flag && scheme == MIDDLE) {
       nve_x(dthalf);
@@ -1167,7 +1174,7 @@ void FixNHMassiveMolecular::initial_integrate_respa(int /*vflag*/, int ilevel, i
       nve_x(dtv);
     if (pstat_flag) {
       remap();
-      if (internal_vscaling_flag) nh_v_press();
+      if (pvsum_flag && internal_vscaling_flag) nh_v_press();
     }
   }
 }
@@ -1209,8 +1216,10 @@ void FixNHMassiveMolecular::couple()
   else
     inv_volume = 1.0 / (domain->xprd*domain->yprd);
 
-  if (pstyle == ISO)
-    scalar = pressure->scalar + tempfactor*temperature->scalar*inv_volume;
+  if (pstyle == ISO) {
+    double temp = pvsum_flag ? temperature->scalar : t_target;
+    scalar = pressure->scalar + tempfactor*temp*inv_volume;
+  }
   else
     for (int i = 0; i < 6; i++)
       tensor[i] = pressure->vector[i] + temperature->vector[i]*inv_volume*nktv2p;
@@ -2693,7 +2702,8 @@ void FixNHMassiveMolecular::nh_omega_dot()
   mtk_term1 = 0.0;
   if (mtk_flag) {
     if (pstyle == ISO) {
-      mtk_term1 = tdof * boltz * t_current;
+      double temp = pvsum_flag ? t_current : t_target;
+      mtk_term1 = tdof * boltz * temp;
       mtk_term1 /= pdim * pressure->nmolecules;
     } else {
       double *mvv_current = temperature->vector;
